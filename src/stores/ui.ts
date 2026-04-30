@@ -34,6 +34,7 @@ export type ModalName =
   | "mcpSettings"
   | "hearthSettings"
   | "tabNamePopup"
+  | "memoryBrowser"
   | "uiDemo";
 
 type Modals = Record<ModalName, boolean>;
@@ -68,6 +69,7 @@ const INITIAL_MODALS: Modals = {
   mcpSettings: false,
   hearthSettings: false,
   tabNamePopup: false,
+  memoryBrowser: false,
   uiDemo: false,
 };
 

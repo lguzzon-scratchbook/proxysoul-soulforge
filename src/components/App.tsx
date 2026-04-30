@@ -267,6 +267,7 @@ import {
 import type { PrerequisiteStatus } from "../core/setup/prerequisites.js";
 import { getEditedFilesForTab } from "../core/tools/edit-stack.js";
 import { useMCPStore } from "../stores/mcp.js";
+import { MemoryBrowser } from "./modals/MemoryBrowser.js";
 
 interface Props {
   config: AppConfig;
@@ -538,6 +539,7 @@ export function App({
   const modalFirstRunWizard = useUIStore((s) => s.modals.firstRunWizard);
   const modalUpdateModal = useUIStore((s) => s.modals.updateModal);
   const modalTabNamePopup = useUIStore((s) => s.modals.tabNamePopup);
+  const modalMemoryBrowser = useUIStore((s) => s.modals.memoryBrowser);
   const modalUiDemo = useUIStore((s) => s.modals.uiDemo);
   const toolsState = useToolsStore();
 
@@ -1307,6 +1309,7 @@ export function App({
         openCompactionLog: () => uiState.openModal("compactionLog"),
         openCommandPicker: (pickerConfig) => uiState.openCommandPicker(pickerConfig),
         openInfoPopup: (popupConfig) => uiState.openInfoPopup(popupConfig),
+        openMemoryBrowser: () => uiState.openModal("memoryBrowser"),
         toggleChanges: () => uiState.toggleChangesExpanded(),
         saveToScope,
         detectScope,
@@ -1654,6 +1657,14 @@ export function App({
         visible={modalSkillSearch}
         contextManager={tabMgr.getActiveChat()?.contextManager ?? contextManager}
         onClose={getCloser("skillSearch")}
+        onSystemMessage={addSystemMessage}
+      />
+
+      <MemoryBrowser
+        visible={modalMemoryBrowser}
+        contextManager={tabMgr.getActiveChat()?.contextManager ?? contextManager}
+        cwd={cwd}
+        onClose={getCloser("memoryBrowser")}
         onSystemMessage={addSystemMessage}
       />
 

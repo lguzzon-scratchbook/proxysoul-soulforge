@@ -59,6 +59,7 @@ export interface CommandContext {
   openHearthSettings: () => void;
   openCommandPicker: (config: CommandPickerConfig) => void;
   openInfoPopup: (config: InfoPopupConfig) => void;
+  openMemoryBrowser: () => void;
   toggleChanges: () => void;
   saveToScope: (patch: Partial<AppConfig>, toScope: ConfigScope, fromScope?: ConfigScope) => void;
   detectScope: (key: string) => ConfigScope;
