@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.14.7] — 2026-05-07
+
+### Bug Fixes
+
+- **proxy**: self-heal version file and reuse bounceProxy on restart
 ## [2.14.6] — 2026-05-07
 
 ### Bug Fixes
