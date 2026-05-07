@@ -349,12 +349,10 @@ async function handleProxyStop(_input: string, ctx: CommandContext): Promise<voi
 }
 
 async function handleProxyRestart(_input: string, ctx: CommandContext): Promise<void> {
-  const { stopProxy, ensureProxy } = await import("../proxy/lifecycle.js");
+  const { bounceProxy } = await import("../proxy/lifecycle.js");
   sysMsg(ctx, "Restarting proxy…");
-  stopProxy();
-  await new Promise((r) => setTimeout(r, 500));
-  const result = await ensureProxy();
-  sysMsg(ctx, result.ok ? "Proxy restarted." : `Failed: ${result.error ?? "unknown"}`);
+  const ok = await bounceProxy();
+  sysMsg(ctx, ok ? "Proxy restarted." : "Failed to restart proxy.");
 }
 
 export function register(map: Map<string, CommandHandler>): void {

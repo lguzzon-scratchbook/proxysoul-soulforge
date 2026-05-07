@@ -49,19 +49,29 @@ function getProxyState(): { state: ProxyState; error: string | null } {
 const VERSION_FILE = join(PROXY_CONFIG_DIR, "version");
 
 function getInstalledProxyVersion(): string {
+  const vendored = getVendoredPath("cli-proxy-api");
+  const binaryVersion = vendored ? getBinaryVersion(vendored) : null;
+
   try {
     if (existsSync(VERSION_FILE)) {
       const v = readFileSync(VERSION_FILE, "utf-8").trim();
-      if (v) return v;
+      if (v) {
+        // If the version file disagrees with the actual binary on disk,
+        // trust the binary — the file may be stale from a failed upgrade.
+        if (binaryVersion && v !== binaryVersion) {
+          saveInstalledProxyVersion(binaryVersion);
+          return binaryVersion;
+        }
+        return v;
+      }
     }
   } catch {}
   // Self-heal: if the version file is missing but we have a vendored
   // binary, read the version directly from it. Keeps the status dashboard
   // accurate after a fresh install, cache reset, or file deletion.
-  const vendored = getVendoredPath("cli-proxy-api");
-  if (vendored) {
-    const v = getBinaryVersion(vendored);
-    if (v) return v;
+  if (binaryVersion) {
+    saveInstalledProxyVersion(binaryVersion);
+    return binaryVersion;
   }
   return "";
 }
@@ -646,7 +656,7 @@ export async function upgradeProxy(
   if (wasRunning) {
     onStatus("Stopping proxy…");
     stopProxy();
-    await new Promise((r) => setTimeout(r, 500));
+    await waitForPortFree(3000);
   }
 
   onStatus(`Downloading CLIProxyAPI v${vinfo.latest}…`);
