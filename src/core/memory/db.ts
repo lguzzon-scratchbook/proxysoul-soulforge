@@ -75,6 +75,12 @@ export interface MemoryWriteResult {
   deduped: boolean;
   /** True when dedup hit and incoming topics differed from stored. */
   topicDiff?: boolean;
+  /**
+   * Phase 5 — semantic similarity hint. Populated only on a fresh insert
+   * (not on dedup) when the new memory has cosine ≥ SIMILAR_HINT_THRESHOLD
+   * with an existing non-hidden memory. Advisory only — write proceeds.
+   */
+  similarHints?: Array<{ id: string; weight: number; summary: string }>;
 }
 
 export class MemoryDB {
@@ -283,10 +289,15 @@ export class MemoryDB {
           .run(input.summary, input.details, topicsJson, input.category, hash, now, input.id);
         const updated = this.read(input.id);
         if (!updated) throw new Error(`Failed to read memory ${input.id} after upsert`);
+        let upsertHints: Array<{ id: string; weight: number; summary: string }> | undefined;
         try {
-          this.embedAndLink(updated.id);
+          const scored = this.embedAndLink(updated.id);
+          const strong = scored.filter((s) => s.weight >= SIMILAR_HINT_THRESHOLD).slice(0, 3);
+          if (strong.length > 0) upsertHints = strong;
         } catch {}
-        return { record: updated, deduped: false };
+        const upsertResult: MemoryWriteResult = { record: updated, deduped: false };
+        if (upsertHints) upsertResult.similarHints = upsertHints;
+        return upsertResult;
       }
     }
 
@@ -374,10 +385,15 @@ export class MemoryDB {
 
     if (!row) throw new Error(`Failed to write memory ${id}`);
     const record = toRecord(row);
+    let similarHints: Array<{ id: string; weight: number; summary: string }> | undefined;
     try {
-      this.embedAndLink(record.id);
+      const scored = this.embedAndLink(record.id);
+      const strong = scored.filter((s) => s.weight >= SIMILAR_HINT_THRESHOLD).slice(0, 3);
+      if (strong.length > 0) similarHints = strong;
     } catch {}
-    return { record, deduped: false };
+    const result: MemoryWriteResult = { record, deduped: false };
+    if (similarHints) result.similarHints = similarHints;
+    return result;
   }
 
   getByContentHash(hash: string): MemoryRecord | null {
@@ -957,17 +973,22 @@ export class MemoryDB {
   /**
    * Compute + store embedding for `id`, then infer "similar" edges with all
    * other non-hidden memories above `threshold` cosine. Edges are bidirectional
-   * (we insert both directions). Returns the count of edges added/updated.
+   * (we insert both directions). Returns the scored neighbor list so callers
+   * can surface a Phase 5 contradiction hint without a second similarity scan.
    *
    * Default threshold is 0.5 so moderately related pairs persist; consumers
    * (cluster queries, recall) filter to a higher cut at read time. This keeps
    * edge inference one-shot — no rebuild required when the consumer's bar moves.
    */
-  embedAndLink(id: string, threshold = 0.5, maxEdges = 8): number {
+  embedAndLink(
+    id: string,
+    threshold = 0.5,
+    maxEdges = 8,
+  ): Array<{ id: string; weight: number; summary: string }> {
     const record = this.read(id);
-    if (!record) return 0;
+    if (!record) return [];
     const source = memoryEmbedSource(record.summary, record.details, record.topics);
-    if (!source) return 0;
+    if (!source) return [];
     const vec = embed(source);
     this.setEmbedding(id, vec, EMBED_MODEL);
 
@@ -982,7 +1003,15 @@ export class MemoryDB {
       this.addEdge(id, s.id, "similar", s.weight);
       this.addEdge(s.id, id, "similar", s.weight);
     }
-    return scored.length;
+
+    if (scored.length === 0) return [];
+    const fullRecords = this.readMany(scored.map((s) => s.id));
+    const summaryById = new Map(fullRecords.map((r) => [r.id, r.summary]));
+    return scored.map((s) => ({
+      id: s.id,
+      weight: s.weight,
+      summary: summaryById.get(s.id) ?? "",
+    }));
   }
 }
 
@@ -1140,3 +1169,4 @@ function isDbClosedError(err: unknown): boolean {
   const msg = err.message.toLowerCase();
   return msg.includes("closed") || msg.includes("not open") || msg.includes("misuse");
 }
+const SIMILAR_HINT_THRESHOLD = 0.85;

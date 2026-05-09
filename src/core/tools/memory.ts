@@ -178,6 +178,13 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
           output = `Saved: "${result.record.summary}" (${result.record.id.slice(0, 8)}, ${scope})`;
         }
 
+        if (result.similarHints && result.similarHints.length > 0) {
+          const lines = result.similarHints.map(
+            (h) => `  - ${h.id.slice(0, 8)} (${(h.weight * 100).toFixed(0)}%) "${h.summary}"`,
+          );
+          output += `\nSimilar existing memor${result.similarHints.length === 1 ? "y" : "ies"} — review for contradiction or supersession:\n${lines.join("\n")}`;
+        }
+
         return {
           success: true,
           output,
@@ -187,6 +194,7 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
             topic_diff: result.topicDiff ?? false,
             scope,
             category: result.record.category,
+            similar_hints: result.similarHints ?? [],
           },
         };
       }
