@@ -352,6 +352,19 @@ export interface AppConfig {
   toolTimeout?: number;
   /** Retry behavior for transient provider errors (429, 529, 503, timeouts, overloaded). */
   retry?: RetryConfig;
+  /** Memory subsystem config. */
+  memory?: MemoryConfig;
+}
+
+export interface MemoryConfig {
+  /** Phase 6 — post-turn memory extraction. Default: disabled. */
+  postTurnExtraction?: {
+    enabled?: boolean;
+    /** Optional model override (defaults to taskRouter.semantic, then defaultModel). */
+    model?: string;
+    /** Cap on proposals per turn. Default: 3 */
+    maxPerTurn?: number;
+  };
 }
 
 export interface RetryConfig {

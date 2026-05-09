@@ -224,7 +224,7 @@ describe("MemoryDB — schema v2 migration", () => {
       const missing = db.listMissingEmbeddings(undefined, 10);
       expect(missing.length).toBe(1);
       const linked = db.embedAndLink(a.record.id);
-      expect(linked).toBe(0); // no other memories
+      expect(linked).toEqual([]); // no other memories to link
       expect(db.getEmbedding(a.record.id)).not.toBeNull();
     } finally {
       db.close();
