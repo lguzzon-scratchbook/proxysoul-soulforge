@@ -459,7 +459,9 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
         error: "ambiguous_id",
       };
     }
-    return prefix[0]?.id;
+    return (
+      prefix[0]?.id ?? { success: false, output: `Pending not found: ${input}`, error: "not_found" }
+    );
   }
 
   function resolveReadScope(

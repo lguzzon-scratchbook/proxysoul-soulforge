@@ -14,11 +14,15 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { loadConfig, saveGlobalConfig, saveProjectConfig } from "../../config/index.js";
 import type { ContextManager } from "../../core/context/manager.js";
 import type { ScopedMemory } from "../../core/memory/manager.js";
 import type { MemoryRecord, MemoryScope } from "../../core/memory/types.js";
 import { useTheme } from "../../core/theme/index.js";
 import {
+  buildGroupedRows,
+  GroupedList,
+  type GroupedListGroup,
   Hint,
   PremiumPopup,
   Search,
@@ -29,7 +33,46 @@ import {
   VSpacer,
 } from "../ui/index.js";
 
-type Tab = "All" | "Hidden" | "Cleanup";
+type Tab = "All" | "Hidden" | "Cleanup" | "Settings";
+
+type SettingsModalKind = "write" | "read" | "settings-storage";
+type SettingsModal = { kind: SettingsModalKind; current: string } | null;
+
+interface SettingsRow {
+  id: string;
+  label: string;
+  meta?: string;
+  active?: boolean;
+  status?: "online" | "offline" | "warning" | "error" | "idle";
+  kind: "write" | "read" | "settings-storage" | "post-turn" | "max-per-turn";
+}
+
+const SETTINGS_MODAL_TITLE: Record<SettingsModalKind, string> = {
+  write: "Write Scope",
+  read: "Read Scope",
+  "settings-storage": "Save Settings To",
+};
+
+const SETTINGS_MODAL_OPTIONS: Record<
+  SettingsModalKind,
+  { value: string; label: string; description: string }[]
+> = {
+  write: [
+    { value: "global", label: "Global", description: "shared across all projects" },
+    { value: "project", label: "Project", description: "scoped to this project" },
+    { value: "none", label: "None", description: "Forge won't save new memories" },
+  ],
+  read: [
+    { value: "all", label: "All", description: "search project + global" },
+    { value: "global", label: "Global", description: "only global memories" },
+    { value: "project", label: "Project", description: "only this project" },
+    { value: "none", label: "None", description: "no recall, no auto-surface" },
+  ],
+  "settings-storage": [
+    { value: "project", label: "Project", description: "preferences saved here" },
+    { value: "global", label: "Global", description: "preferences saved everywhere" },
+  ],
+};
 
 interface Props {
   visible: boolean;
@@ -63,7 +106,7 @@ interface CleanupRow {
   clusterKeeperId?: string;
 }
 
-const TABS: Tab[] = ["All", "Hidden", "Cleanup"];
+const TABS: Tab[] = ["All", "Hidden", "Cleanup", "Settings"];
 
 function timeAgo(iso: string): string {
   const ms = Date.now() - Date.parse(iso);
@@ -95,19 +138,24 @@ function toRow(m: ScopedMemory): MemoryRow {
 }
 
 const COLUMNS: TableColumn<MemoryRow>[] = [
-  { key: "scope", width: 7 },
-  { key: "category", width: 9 },
+  { key: "scope", width: 4, render: (r) => (r.scope === "project" ? "proj" : "glob") },
+  { key: "cat", width: 7, render: (r) => r.category.slice(0, 7) },
   { key: "★", width: 1, render: (r) => r.pin },
   { key: "summary" },
-  { key: "use", width: 6, align: "right" },
-  { key: "age", width: 5, align: "right" },
+  { key: "use", width: 5, align: "right" },
+  { key: "age", width: 4, align: "right" },
 ];
 
-const CLEANUP_COLUMNS: TableColumn<CleanupRow>[] = [
-  { key: "kind", width: 6, render: (r) => r.kindLabel },
-  { key: "scope", width: 7 },
+interface CleanupRowDisplay extends CleanupRow {
+  action?: string;
+}
+
+const CLEANUP_COLUMNS: TableColumn<CleanupRowDisplay>[] = [
+  { key: "kind", width: 5, render: (r) => r.kindLabel },
+  { key: "scope", width: 4, render: (r) => (r.scope === "project" ? "proj" : "glob") },
   { key: "summary" },
-  { key: "detail", width: 28 },
+  { key: "detail", width: 22 },
+  { key: "action", width: 7, render: (r) => r.action ?? "·" },
 ];
 
 export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemMessage }: Props) {
@@ -136,6 +184,9 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
   const [cleanupSelected, setCleanupSelected] = useState<Map<string, "delete" | "pin" | "skip">>(
     new Map(),
   );
+
+  // Settings tab — sub-modal state for picking a value.
+  const [settingsModal, setSettingsModal] = useState<SettingsModal>(null);
 
   const cursorRef = useRef(0);
   cursorRef.current = cursor;
@@ -237,6 +288,7 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
     setCursor(0);
     setConfirmPurge(false);
     setFlash(null);
+    setSettingsModal(null);
     if (tab === "Cleanup") refreshCleanup();
   }, [visible, tab, refreshCleanup]);
 
@@ -264,12 +316,75 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
     });
   }, [allRows, hiddenRows, tab, query]);
 
+  // Settings groups: scope rules + auto-extraction toggle.
+  const cfg = loadConfig();
+  const ext = cfg.memory?.postTurnExtraction;
+  const settingsGroups = useMemo<GroupedListGroup<SettingsRow>[]>(() => {
+    const scopeCfg = memMgr.scopeConfig;
+    return [
+      {
+        id: "scopes",
+        label: "Scopes",
+        hideHeader: true,
+        items: [
+          {
+            id: "write",
+            label: "Write Scope",
+            meta: scopeCfg.writeScope,
+            kind: "write" as const,
+          },
+          {
+            id: "read",
+            label: "Read Scope",
+            meta: scopeCfg.readScope,
+            kind: "read" as const,
+          },
+          {
+            id: "settings-storage",
+            label: "Save settings to",
+            meta: memMgr.settingsScope,
+            kind: "settings-storage" as const,
+          },
+        ],
+      },
+      {
+        id: "auto",
+        label: "Auto-extraction",
+        hideHeader: false,
+        items: [
+          {
+            id: "post-turn",
+            label: "Post-turn extraction",
+            meta: ext?.enabled ? "ON" : "OFF",
+            kind: "post-turn" as const,
+            active: !!ext?.enabled,
+            status: ext?.enabled ? ("online" as const) : ("offline" as const),
+          },
+          {
+            id: "max-per-turn",
+            label: "Max proposals per turn",
+            meta: String(ext?.maxPerTurn ?? 3),
+            kind: "max-per-turn" as const,
+          },
+        ],
+      },
+    ];
+  }, [memMgr, ext]);
+
+  const settingsRows = useMemo(
+    () => buildGroupedRows(settingsGroups, new Set(["scopes", "auto"])),
+    [settingsGroups],
+  );
+
   // Clamp cursor when list narrows
   useEffect(() => {
-    const len = tab === "Cleanup" ? cleanupRows.length + 1 : filteredRows.length;
+    let len: number;
+    if (tab === "Cleanup") len = cleanupRows.length + 1;
+    else if (tab === "Settings") len = settingsRows.length;
+    else len = filteredRows.length;
     if (cursor >= len && len > 0) setCursor(len - 1);
     if (len === 0) setCursor(0);
-  }, [filteredRows.length, cleanupRows.length, cursor, tab]);
+  }, [filteredRows.length, cleanupRows.length, settingsRows.length, cursor, tab]);
 
   const bumpGen = () => setGeneration((g) => g + 1);
 
@@ -329,8 +444,84 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
     refreshCleanup();
   };
 
+  const writeMemoryConfig = useCallback(
+    (patch: Partial<NonNullable<typeof cfg.memory>>) => {
+      const current = loadConfig();
+      const merged: typeof cfg.memory = { ...(current.memory ?? {}), ...patch };
+      // Settings live where the user pinned them via /memory → "Save settings to".
+      const target = memMgr.settingsScope;
+      if (target === "global") saveGlobalConfig({ memory: merged });
+      else saveProjectConfig(cwd, { memory: merged });
+      bumpGen();
+    },
+    [cwd, memMgr],
+  );
+
+  const onSettingsSelect = (row: SettingsRow) => {
+    if (row.kind === "write") {
+      setSettingsModal({ kind: "write", current: memMgr.scopeConfig.writeScope });
+    } else if (row.kind === "read") {
+      setSettingsModal({ kind: "read", current: memMgr.scopeConfig.readScope });
+    } else if (row.kind === "settings-storage") {
+      setSettingsModal({ kind: "settings-storage", current: memMgr.settingsScope });
+    } else if (row.kind === "post-turn") {
+      const next = !ext?.enabled;
+      writeMemoryConfig({ postTurnExtraction: { ...(ext ?? {}), enabled: next } });
+      popFlash("ok", `Auto-extraction ${next ? "enabled" : "disabled"}`);
+    } else if (row.kind === "max-per-turn") {
+      const cur = ext?.maxPerTurn ?? 3;
+      const next = cur >= 5 ? 1 : cur + 1;
+      writeMemoryConfig({ postTurnExtraction: { ...(ext ?? {}), maxPerTurn: next } });
+      popFlash("ok", `Max proposals/turn: ${String(next)}`);
+    }
+  };
+
+  const applySettingsModal = (value: string) => {
+    if (!settingsModal) return;
+    if (settingsModal.kind === "write") {
+      memMgr.scopeConfig = {
+        ...memMgr.scopeConfig,
+        writeScope: value as "global" | "project" | "none",
+      };
+      popFlash("ok", `Write scope: ${value}`);
+    } else if (settingsModal.kind === "read") {
+      memMgr.scopeConfig = {
+        ...memMgr.scopeConfig,
+        readScope: value as "global" | "project" | "all" | "none",
+      };
+      popFlash("ok", `Read scope: ${value}`);
+    } else if (settingsModal.kind === "settings-storage") {
+      memMgr.setSettingsScope(value as "project" | "global");
+      popFlash("ok", `Settings saved to: ${value}`);
+    }
+    setSettingsModal(null);
+    bumpGen();
+  };
+
   useKeyboard((evt) => {
     if (!visible) return;
+
+    if (settingsModal) {
+      const opts = SETTINGS_MODAL_OPTIONS[settingsModal.kind];
+      if (evt.name === "escape") {
+        setSettingsModal(null);
+        return;
+      }
+      if (evt.name === "up") {
+        setCursor((c) => (c > 0 ? c - 1 : opts.length - 1));
+        return;
+      }
+      if (evt.name === "down") {
+        setCursor((c) => (c < opts.length - 1 ? c + 1 : 0));
+        return;
+      }
+      if (evt.name === "return") {
+        const opt = opts[cursorRef.current];
+        if (opt) applySettingsModal(opt.value);
+        return;
+      }
+      return;
+    }
 
     if (confirmPurge) {
       if (evt.name === "y") {
@@ -359,13 +550,24 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
       return;
     }
 
-    const len = tab === "Cleanup" ? cleanupRows.length + 1 : filteredRows.length;
+    let len: number;
+    if (tab === "Cleanup") len = cleanupRows.length + 1;
+    else if (tab === "Settings") len = settingsRows.length;
+    else len = filteredRows.length;
     if (evt.name === "up") {
       setCursor((c) => (c > 0 ? c - 1 : Math.max(0, len - 1)));
       return;
     }
     if (evt.name === "down") {
       setCursor((c) => (c < len - 1 ? c + 1 : 0));
+      return;
+    }
+
+    if (tab === "Settings") {
+      if (evt.name === "return" || evt.name === "space") {
+        const r = settingsRows[cursorRef.current];
+        if (r?.kind === "item" && r.item) onSettingsSelect(r.item as SettingsRow);
+      }
       return;
     }
 
@@ -475,36 +677,98 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
       blurb: hint ? `${String(hint.stale)} stale · review now` : "duplicates · dead refs · stale",
       status: hint ? "warning" : undefined,
     },
+    {
+      id: "Settings",
+      label: "Settings",
+      icon: "gear",
+      blurb: `${memMgr.scopeConfig.writeScope}/${memMgr.scopeConfig.readScope} · ${
+        ext?.enabled ? "auto-on" : "auto-off"
+      }`,
+    },
   ];
 
   const cleanupAction = (id: string) => {
     const a = cleanupSelected.get(id);
-    if (a === "delete") return "✗ delete";
+    if (a === "delete") return "✗ del";
     if (a === "pin") return "★ pin";
     if (a === "skip") return "↷ skip";
     return "·";
   };
 
-  const baseHints =
-    tab === "Cleanup"
-      ? [
+  let baseHints: { key: string; label: string }[];
+  if (tab === "Cleanup") {
+    baseHints = [
+      { key: "↑↓", label: "nav" },
+      { key: "Enter", label: "cycle" },
+      { key: "d/p/s", label: "set" },
+      { key: "^R", label: "refresh" },
+      { key: "Tab", label: "panel" },
+      { key: "Esc", label: "close" },
+    ];
+  } else if (tab === "Settings") {
+    baseHints = [
+      { key: "↑↓", label: "nav" },
+      { key: "Enter", label: "edit" },
+      { key: "Tab", label: "panel" },
+      { key: "Esc", label: "close" },
+    ];
+  } else {
+    baseHints = [
+      { key: "↑↓", label: "nav" },
+      { key: "Enter", label: "pin" },
+      ...(tab === "Hidden" ? [{ key: "^R", label: "restore" }] : [{ key: "^D", label: "hide" }]),
+      { key: "^X", label: "purge all" },
+      { key: "Tab", label: "panel" },
+      { key: "Esc", label: "close" },
+    ];
+  }
+
+  // Settings sub-modal — small inline overlay.
+  if (settingsModal) {
+    const opts = SETTINGS_MODAL_OPTIONS[settingsModal.kind];
+    return (
+      <PremiumPopup
+        visible={visible}
+        width={Math.min(60, popupW)}
+        height={Math.min(opts.length + 8, popupH)}
+        title={SETTINGS_MODAL_TITLE[settingsModal.kind]}
+        titleIcon="gear"
+        footerHints={[
           { key: "↑↓", label: "nav" },
-          { key: "Enter", label: "cycle" },
-          { key: "d/p/s", label: "set" },
-          { key: "^R", label: "refresh" },
-          { key: "Tab", label: "panel" },
-          { key: "Esc", label: "close" },
-        ]
-      : [
-          { key: "↑↓", label: "nav" },
-          { key: "Enter", label: "pin" },
-          ...(tab === "Hidden"
-            ? [{ key: "^R", label: "restore" }]
-            : [{ key: "^D", label: "hide" }]),
-          { key: "^X", label: "purge all" },
-          { key: "Tab", label: "panel" },
-          { key: "Esc", label: "close" },
-        ];
+          { key: "Enter", label: "select" },
+          { key: "Esc", label: "back" },
+        ]}
+      >
+        <Section>
+          {opts.map((o, i) => {
+            const isCurrent = o.value === settingsModal.current;
+            const isSelected = i === cursor;
+            const bg = isSelected ? t.bgPopupHighlight : t.bgPopup;
+            return (
+              <box key={o.value} flexDirection="row" paddingX={2} backgroundColor={bg}>
+                <text bg={bg} fg={isSelected ? t.brand : t.textFaint}>
+                  {isSelected ? "▸ " : "  "}
+                </text>
+                <text bg={bg} fg={t.textPrimary} attributes={isSelected ? 1 : undefined}>
+                  {o.label}
+                </text>
+                {isCurrent ? (
+                  <text bg={bg} fg={t.success}>
+                    {" "}
+                    ✓
+                  </text>
+                ) : null}
+                <box flexGrow={1} backgroundColor={bg} />
+                <text bg={bg} fg={t.textFaint}>
+                  {o.description}
+                </text>
+              </box>
+            );
+          })}
+        </Section>
+      </PremiumPopup>
+    );
+  }
 
   return (
     <PremiumPopup
@@ -527,26 +791,30 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
       flash={flash}
     >
       <Section>
-        {tab === "Cleanup" ? (
+        {tab === "Settings" ? (
+          <GroupedList
+            groups={settingsGroups}
+            expanded={new Set(["scopes", "auto"])}
+            selectedIndex={cursor}
+            width={contentW}
+            maxRows={Math.max(4, popupH - 10)}
+          />
+        ) : tab === "Cleanup" ? (
           <>
             <box flexDirection="row" paddingX={2} backgroundColor={t.bgPopup}>
               <text bg={t.bgPopup} fg={t.textMuted}>
                 {cleanupRows.length === 0
-                  ? "Nothing to clean up — Quick + Stale checks both came up clean."
-                  : `${String(cleanupRows.length)} candidates — pick action per row, then Enter on ✓ Apply`}
+                  ? "Nothing to clean up — all checks came up clean."
+                  : `${String(cleanupRows.length)} candidates · pick action per row · Enter ✓ Apply`}
               </text>
             </box>
             <VSpacer />
             <Table
-              columns={[
-                ...CLEANUP_COLUMNS,
-                {
-                  key: "action",
-                  width: 10,
-                  render: (r) => cleanupAction(r.id),
-                },
-              ]}
-              rows={cleanupRows}
+              columns={CLEANUP_COLUMNS}
+              rows={cleanupRows.map((r) => ({
+                ...r,
+                action: cleanupAction(r.id),
+              }))}
               width={contentW}
               selectedIndex={cursor < cleanupRows.length ? cursor : -1}
               focused

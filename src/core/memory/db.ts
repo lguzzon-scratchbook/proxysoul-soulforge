@@ -1056,7 +1056,7 @@ export class MemoryDB {
       .query<{ id: string }, [string]>("SELECT id FROM memories WHERE id LIKE ? || '%' LIMIT 5")
       .all(prefix);
     if (rows.length === 0) return null;
-    if (rows.length === 1) return rows[0]?.id;
+    if (rows.length === 1) return rows[0]?.id ?? null;
     return { ambiguous: rows.map((r) => r.id) };
   }
 }
