@@ -14,7 +14,6 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { loadConfig, saveGlobalConfig, saveProjectConfig } from "../../config/index.js";
 import type { ContextManager } from "../../core/context/manager.js";
 import type { ScopedMemory } from "../../core/memory/manager.js";
 import type { MemoryRecord, MemoryScope } from "../../core/memory/types.js";
@@ -44,7 +43,7 @@ interface SettingsRow {
   meta?: string;
   active?: boolean;
   status?: "online" | "offline" | "warning" | "error" | "idle";
-  kind: "write" | "read" | "settings-storage" | "post-turn" | "max-per-turn";
+  kind: "write" | "read" | "settings-storage";
 }
 
 const SETTINGS_MODAL_TITLE: Record<SettingsModalKind, string> = {
@@ -316,9 +315,7 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
     });
   }, [allRows, hiddenRows, tab, query]);
 
-  // Settings groups: scope rules + auto-extraction toggle.
-  const cfg = loadConfig();
-  const ext = cfg.memory?.postTurnExtraction;
+  // Settings groups: scope rules.
   const settingsGroups = useMemo<GroupedListGroup<SettingsRow>[]>(() => {
     const scopeCfg = memMgr.scopeConfig;
     return [
@@ -347,32 +344,11 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
           },
         ],
       },
-      {
-        id: "auto",
-        label: "Auto-extraction",
-        hideHeader: false,
-        items: [
-          {
-            id: "post-turn",
-            label: "Post-turn extraction",
-            meta: ext?.enabled ? "ON" : "OFF",
-            kind: "post-turn" as const,
-            active: !!ext?.enabled,
-            status: ext?.enabled ? ("online" as const) : ("offline" as const),
-          },
-          {
-            id: "max-per-turn",
-            label: "Max proposals per turn",
-            meta: String(ext?.maxPerTurn ?? 3),
-            kind: "max-per-turn" as const,
-          },
-        ],
-      },
     ];
-  }, [memMgr, ext]);
+  }, [memMgr]);
 
   const settingsRows = useMemo(
-    () => buildGroupedRows(settingsGroups, new Set(["scopes", "auto"])),
+    () => buildGroupedRows(settingsGroups, new Set(["scopes"])),
     [settingsGroups],
   );
 
@@ -444,19 +420,6 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
     refreshCleanup();
   };
 
-  const writeMemoryConfig = useCallback(
-    (patch: Partial<NonNullable<typeof cfg.memory>>) => {
-      const current = loadConfig();
-      const merged: typeof cfg.memory = { ...(current.memory ?? {}), ...patch };
-      // Settings live where the user pinned them via /memory → "Save settings to".
-      const target = memMgr.settingsScope;
-      if (target === "global") saveGlobalConfig({ memory: merged });
-      else saveProjectConfig(cwd, { memory: merged });
-      bumpGen();
-    },
-    [cwd, memMgr],
-  );
-
   const onSettingsSelect = (row: SettingsRow) => {
     if (row.kind === "write") {
       setSettingsModal({ kind: "write", current: memMgr.scopeConfig.writeScope });
@@ -464,15 +427,6 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
       setSettingsModal({ kind: "read", current: memMgr.scopeConfig.readScope });
     } else if (row.kind === "settings-storage") {
       setSettingsModal({ kind: "settings-storage", current: memMgr.settingsScope });
-    } else if (row.kind === "post-turn") {
-      const next = !ext?.enabled;
-      writeMemoryConfig({ postTurnExtraction: { ...(ext ?? {}), enabled: next } });
-      popFlash("ok", `Auto-extraction ${next ? "enabled" : "disabled"}`);
-    } else if (row.kind === "max-per-turn") {
-      const cur = ext?.maxPerTurn ?? 3;
-      const next = cur >= 5 ? 1 : cur + 1;
-      writeMemoryConfig({ postTurnExtraction: { ...(ext ?? {}), maxPerTurn: next } });
-      popFlash("ok", `Max proposals/turn: ${String(next)}`);
     }
   };
 
@@ -681,9 +635,7 @@ export function MemoryBrowser({ visible, contextManager, cwd, onClose, onSystemM
       id: "Settings",
       label: "Settings",
       icon: "gear",
-      blurb: `${memMgr.scopeConfig.writeScope}/${memMgr.scopeConfig.readScope} · ${
-        ext?.enabled ? "auto-on" : "auto-off"
-      }`,
+      blurb: `${memMgr.scopeConfig.writeScope}/${memMgr.scopeConfig.readScope}`,
     },
   ];
 

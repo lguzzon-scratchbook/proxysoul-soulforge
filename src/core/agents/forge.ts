@@ -1,7 +1,7 @@
 import { forwardAnthropicContainerIdFromLastStep } from "@ai-sdk/anthropic";
 import type { ModelMessage, ProviderOptions } from "@ai-sdk/provider-utils";
 import type { LanguageModel } from "ai";
-import { generateText, ToolLoopAgent } from "ai";
+import { ToolLoopAgent } from "ai";
 import { z } from "zod";
 import { loadConfig } from "../../config/index.js";
 import { logBackgroundError } from "../../stores/errors.js";
@@ -23,7 +23,6 @@ import {
   supportsTemperature,
 } from "../llm/provider-options.js";
 import { getMCPManager } from "../mcp/index.js";
-import { MemoryExtractor } from "../memory/extractor.js";
 import { resolveRetrySettings } from "../retry/settings.js";
 import {
   buildInteractiveTools,
@@ -866,19 +865,6 @@ export function createForgeAgent({
       if (isAbnormalFinish(step.finishReason)) {
         logBackgroundError("agent-error", `forge: ${describeAbnormalFinish(step.finishReason)}`);
       }
-      // Phase 6 — post-turn extraction (opt-in). Fires only when a turn ends
-      // ('stop'), the assistant produced visible text, and the user has the
-      // memory.postTurnExtraction.enabled flag on. Best-effort: any failure
-      // (network, JSON parse, model timeout) collapses silently.
-      if (step.finishReason === "stop") {
-        maybeExtractMemoriesFromTurn({
-          step,
-          messages: parentMessagesRef.current ?? [],
-          contextManager,
-          model,
-          sessionId: sessionId ?? null,
-        });
-      }
     },
     instructions: isProxyClaude
       ? undefined
@@ -911,6 +897,7 @@ export function createForgeAgent({
     ...(subagentHeaders ? { headers: subagentHeaders } : {}),
   });
 }
+
 function countUserTurns(messages: ModelMessage[]): number {
   let n = 0;
   for (const m of messages) {
@@ -941,73 +928,4 @@ function extractText(message: ModelMessage | undefined): string {
     return parts.join("\n").trim();
   }
   return "";
-}
-/**
- * Phase 6 — post-turn extraction trigger. Fires per turn-end on the agent's
- * background path. Never blocks the response; never throws to the caller;
- * never auto-writes — proposals land in the pending queue for user review.
- *
- * Gate cascade:
- *   1. config.memory.postTurnExtraction.enabled (default: false)
- *   2. extracted assistant text length ≥ 80 chars (avoid noise)
- *   3. matching user message present in the same turn slice
- */
-function maybeExtractMemoriesFromTurn(opts: {
-  step: { text?: string };
-  messages: ModelMessage[];
-  contextManager: ContextManager;
-  model: LanguageModel;
-  sessionId: string | null;
-}): void {
-  const cfg = loadConfig().memory?.postTurnExtraction;
-  if (!cfg?.enabled) return;
-
-  const assistantText = (opts.step.text ?? "").trim();
-  if (assistantText.length < 80) return;
-
-  const userText = lastUserText(opts.messages);
-  if (!userText) return;
-
-  const manager = opts.contextManager.getMemoryManager();
-  if (!manager) return;
-
-  const turnIndex = countUserTurns(opts.messages);
-
-  // Fire-and-forget — extraction runs on the side, errors collapse to no-op.
-  void (async () => {
-    try {
-      const extractor = new MemoryExtractor(async (prompt) => {
-        const r = await generateText({
-          model: opts.model,
-          prompt,
-          maxOutputTokens: 1024,
-        });
-        return r.text;
-      });
-      const proposals = await extractor.proposeFromTurn(userText, assistantText);
-      if (proposals.length === 0) return;
-      const cap = cfg.maxPerTurn ?? 3;
-      manager.addPending(proposals.slice(0, cap), opts.sessionId, turnIndex);
-    } catch {
-      // best-effort, swallow
-    }
-  })();
-}
-
-function lastUserText(messages: ModelMessage[]): string | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (!m || m.role !== "user") continue;
-    if (typeof m.content === "string") return m.content.trim() || null;
-    if (Array.isArray(m.content)) {
-      const parts: string[] = [];
-      for (const p of m.content) {
-        if (p.type === "text" && typeof p.text === "string") parts.push(p.text);
-      }
-      const joined = parts.join("\n").trim();
-      return joined || null;
-    }
-    return null;
-  }
-  return null;
 }

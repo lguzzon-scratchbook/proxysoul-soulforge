@@ -7,8 +7,6 @@ import {
   type MemoryWriteInput,
   type MemoryWriteResult,
 } from "./db.js";
-import type { ExtractedProposal, PendingProposal } from "./extractor.js";
-import { PendingStore } from "./pending.js";
 import type {
   MemoryCategory,
   MemoryFileRef,
@@ -415,65 +413,6 @@ export class MemoryManager {
     }
     if (n > 0) this._generation++;
     return n;
-  }
-
-  private _pending: PendingStore | null = null;
-
-  private pending(): PendingStore {
-    if (!this._pending) this._pending = new PendingStore(this.cwd);
-    return this._pending;
-  }
-
-  /** Phase 6 — list pending extraction proposals (project-scoped). */
-  listPending(): PendingProposal[] {
-    return this.pending().list();
-  }
-
-  addPending(
-    proposals: ExtractedProposal[],
-    sessionId: string | null,
-    turnIndex: number | null,
-  ): PendingProposal[] {
-    const now = new Date().toISOString();
-    const added: PendingProposal[] = [];
-    for (const p of proposals) {
-      const item: PendingProposal = {
-        ...p,
-        id: crypto.randomUUID(),
-        proposed_at: now,
-        source_session_id: sessionId,
-        source_turn_index: turnIndex,
-      };
-      this.pending().add(item);
-      added.push(item);
-    }
-    return added;
-  }
-
-  acceptPending(id: string, scope: MemoryScope): MemoryRecord | null {
-    const p = this.pending().get(id);
-    if (!p) return null;
-    const result = this.write(scope, {
-      summary: p.summary,
-      details: p.details,
-      topics: p.topics,
-      category: p.category,
-      source: "agent",
-      session_id: p.source_session_id ?? null,
-    });
-    for (const path of p.file_paths) {
-      this.addFileRef(scope, result.record.id, path, null);
-    }
-    this.pending().remove(id);
-    return result.record;
-  }
-
-  rejectPending(id: string): boolean {
-    return this.pending().remove(id);
-  }
-
-  clearPending(): number {
-    return this.pending().clear();
   }
 
   private _globalDir: string;

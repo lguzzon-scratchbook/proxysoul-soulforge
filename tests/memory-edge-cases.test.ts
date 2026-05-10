@@ -6,14 +6,12 @@
  *   1. db.ts             schema/dedup/FTS/file-refs/edges/embeddings
  *   2. recall.ts         empty inputs, broken intel, threshold edges
  *   3. embedder.ts       degenerate inputs, buffer roundtrip
- *   4. extractor.ts      malformed model output, type confusion, length caps
- *   5. pending.ts        corrupt store, capacity overflow
- *   6. manager.ts        scope confusion, config corruption
+ *   4. manager.ts        scope confusion, config corruption
  */
 
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MemoryDB } from "../src/core/memory/db.js";
@@ -24,9 +22,7 @@ import {
   EMBED_DIM,
   vectorToBuffer,
 } from "../src/core/memory/embedder.js";
-import { parseProposals } from "../src/core/memory/extractor.js";
 import { MemoryManager } from "../src/core/memory/manager.js";
-import { PendingStore } from "../src/core/memory/pending.js";
 import { MemoryRecall } from "../src/core/memory/recall.js";
 
 function makeTmpDir(label: string): string {
@@ -851,204 +847,6 @@ describe("embedder — degenerate inputs", () => {
     expect(c).toBe(0);
   });
 });
-
-// ─── 4. extractor.ts ─────────────────────────────────────────────────────
-
-describe("MemoryExtractor — adversarial model output", () => {
-  it("top-level object (not array) → []", () => {
-    const raw = `{"summary":"x","details":"","category":null,"topics":[],"file_paths":[]}`;
-    expect(parseProposals(raw)).toEqual([]);
-  });
-
-  it("null entries inside the array are skipped", () => {
-    const raw = `[null, {"summary":"keep","details":"","category":null,"topics":[],"file_paths":[]}, null]`;
-    const out = parseProposals(raw);
-    expect(out.length).toBe(1);
-    expect(out[0]!.summary).toBe("keep");
-  });
-
-  it("wrong field types are coerced safely or dropped", () => {
-    const raw = JSON.stringify([
-      {
-        summary: "ok",
-        details: 12345, // wrong type → empty string
-        category: { not: "a-string" }, // invalid → null
-        topics: "not-an-array", // wrong type → []
-        file_paths: 99, // wrong type → []
-      },
-    ]);
-    const out = parseProposals(raw);
-    expect(out.length).toBe(1);
-    expect(out[0]!.summary).toBe("ok");
-    expect(out[0]!.details).toBe("");
-    expect(out[0]!.category).toBeNull();
-    expect(out[0]!.topics).toEqual([]);
-    expect(out[0]!.file_paths).toEqual([]);
-  });
-
-  it("over-long fields are truncated to schema caps", () => {
-    const raw = JSON.stringify([
-      {
-        summary: "x".repeat(500),
-        details: "y".repeat(5000),
-        category: "context",
-        topics: ["z".repeat(100)],
-        file_paths: Array.from({ length: 100 }, (_, i) => `f${i}.ts`),
-      },
-    ]);
-    const out = parseProposals(raw);
-    expect(out[0]!.summary.length).toBeLessThanOrEqual(200);
-    expect(out[0]!.details.length).toBeLessThanOrEqual(2000);
-    expect(out[0]!.topics[0]!.length).toBeLessThanOrEqual(32);
-    expect(out[0]!.file_paths.length).toBeLessThanOrEqual(16);
-  });
-
-  it("empty/whitespace summary entries are dropped (summary required)", () => {
-    const raw = JSON.stringify([
-      { summary: "   ", details: "x", category: null, topics: [], file_paths: [] },
-      { summary: "", details: "y", category: null, topics: [], file_paths: [] },
-      { summary: "ok", details: "z", category: null, topics: [], file_paths: [] },
-    ]);
-    const out = parseProposals(raw);
-    expect(out.length).toBe(1);
-    expect(out[0]!.summary).toBe("ok");
-  });
-
-  it("topic items that are non-strings are skipped", () => {
-    const raw = JSON.stringify([
-      {
-        summary: "x",
-        details: "",
-        category: null,
-        topics: ["valid", 123, null, { nope: 1 }, "second"],
-        file_paths: [],
-      },
-    ]);
-    const out = parseProposals(raw);
-    expect(out[0]!.topics).toEqual(["valid", "second"]);
-  });
-
-  it("nested fence with extra text outside the array is stripped first", () => {
-    const raw = "Here you go:\n```json\n[]\n```\nHope that helps!";
-    expect(parseProposals(raw)).toEqual([]);
-  });
-});
-
-// ─── 5. pending.ts ───────────────────────────────────────────────────────
-
-describe("PendingStore — corruption + capacity", () => {
-  let dir: string;
-  beforeEach(() => {
-    dir = makeTmpDir("pending-edge");
-  });
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("corrupt JSON file on disk → list() returns [] (no throw)", () => {
-    const path = join(dir, ".soulforge", "memory-pending.json");
-    require("node:fs").mkdirSync(join(dir, ".soulforge"), { recursive: true });
-    writeFileSync(path, "{not-json", "utf-8");
-    const s = new PendingStore(dir);
-    expect(s.list()).toEqual([]);
-  });
-
-  it("non-array root JSON → list() returns []", () => {
-    const path = join(dir, ".soulforge", "memory-pending.json");
-    require("node:fs").mkdirSync(join(dir, ".soulforge"), { recursive: true });
-    writeFileSync(path, JSON.stringify({ rogue: "object" }), "utf-8");
-    const s = new PendingStore(dir);
-    expect(s.list()).toEqual([]);
-  });
-
-  it("array of mixed valid + invalid entries keeps only valid ones", () => {
-    const path = join(dir, ".soulforge", "memory-pending.json");
-    require("node:fs").mkdirSync(join(dir, ".soulforge"), { recursive: true });
-    writeFileSync(
-      path,
-      JSON.stringify([
-        { id: "valid", summary: "ok", details: "", topics: [], file_paths: [], proposed_at: "x" },
-        { only: "garbage" },
-        null,
-        "wrong-shape",
-      ]),
-      "utf-8",
-    );
-    const s = new PendingStore(dir);
-    const items = s.list();
-    expect(items.length).toBe(1);
-    expect(items[0]!.id).toBe("valid");
-  });
-
-  it("over MAX_PENDING (50) → oldest entries fall off (FIFO from tail)", () => {
-    const s = new PendingStore(dir);
-    // unshift order means newer is at head; cap at 50
-    for (let i = 0; i < 60; i++) {
-      s.add({
-        id: `p-${i}`,
-        summary: `s-${i}`,
-        details: "",
-        category: null,
-        topics: [],
-        file_paths: [],
-        proposed_at: new Date().toISOString(),
-        source_session_id: null,
-        source_turn_index: null,
-      });
-    }
-    const items = s.list();
-    expect(items.length).toBe(50);
-    // Newest at head, oldest dropped: p-59 in, p-9 in, p-0..p-9 mostly out
-    expect(items[0]!.id).toBe("p-59");
-    expect(items.some((p) => p.id === "p-0")).toBe(false);
-  });
-
-  it("get(unknown) → null, remove(unknown) → false, clear empty → 0", () => {
-    const s = new PendingStore(dir);
-    expect(s.get("ghost")).toBeNull();
-    expect(s.remove("ghost")).toBe(false);
-    expect(s.clear()).toBe(0);
-  });
-
-  it("clear empties the store and persists", () => {
-    const s = new PendingStore(dir);
-    s.add({
-      id: "p-1",
-      summary: "x",
-      details: "",
-      category: null,
-      topics: [],
-      file_paths: [],
-      proposed_at: new Date().toISOString(),
-      source_session_id: null,
-      source_turn_index: null,
-    });
-    expect(s.clear()).toBe(1);
-    expect(s.list()).toEqual([]);
-    const s2 = new PendingStore(dir);
-    expect(s2.list()).toEqual([]);
-  });
-
-  it("atomic write: store file is valid JSON after every add (no half-written state)", () => {
-    const s = new PendingStore(dir);
-    s.add({
-      id: "p-1",
-      summary: "x",
-      details: "",
-      category: null,
-      topics: [],
-      file_paths: [],
-      proposed_at: new Date().toISOString(),
-      source_session_id: null,
-      source_turn_index: null,
-    });
-    const raw = readFileSync(join(dir, ".soulforge", "memory-pending.json"), "utf-8");
-    expect(() => JSON.parse(raw)).not.toThrow();
-    const tmp = join(dir, ".soulforge", "memory-pending.json.tmp");
-    expect(existsSync(tmp)).toBe(false); // tmp cleaned up by rename
-  });
-});
-
 // ─── 6. manager.ts ───────────────────────────────────────────────────────
 
 describe("MemoryManager — config + scope edge cases", () => {
@@ -1116,15 +914,6 @@ describe("MemoryManager — config + scope edge cases", () => {
     const found = mgr.findById("all", proj.record.id);
     expect(found).not.toBeNull();
     expect(found!.scope).toBe("project");
-  });
-
-  it("acceptPending with unknown id returns null without writing", () => {
-    const globalDir = join(dir, "home-global");
-    require("node:fs").mkdirSync(globalDir, { recursive: true });
-    mgr = new MemoryManager(dir, globalDir);
-    const before = mgr.list("project").length;
-    expect(mgr.acceptPending("ghost-id", "project")).toBeNull();
-    expect(mgr.list("project").length).toBe(before);
   });
 
   it("clearScope('all') zeroes both DBs and bumps generation", () => {

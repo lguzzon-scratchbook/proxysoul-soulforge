@@ -48,19 +48,7 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
     description:
       "Persistent memory across sessions. Memory surfaces relevant entries automatically when you edit or mention related files — explicit search is only for targeted lookup. Write durable, non-code knowledge: user preferences, decisions with rationale, gotchas, project history. Don't store anything the codebase already shows (Soul Map covers that).",
     inputSchema: z.object({
-      action: z.enum([
-        "write",
-        "get",
-        "list",
-        "search",
-        "delete",
-        "restore",
-        "pin",
-        "unpin",
-        "list_pending",
-        "accept_pending",
-        "reject_pending",
-      ]),
+      action: z.enum(["write", "get", "list", "search", "delete", "restore", "pin", "unpin"]),
       scope: z
         .enum(["global", "project", "both", "all"])
         .nullable()
@@ -122,12 +110,6 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
             return handlePin(true);
           case "unpin":
             return handlePin(false);
-          case "list_pending":
-            return handleListPending();
-          case "accept_pending":
-            return handleAcceptPending();
-          case "reject_pending":
-            return handleRejectPending();
           default:
             return {
               success: false,
@@ -333,52 +315,6 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
         return { success: true, output: `Restored ${fullId.slice(0, 8)}` };
       }
 
-      function handleListPending() {
-        const items = manager.listPending();
-        if (items.length === 0) return { success: true, output: "No pending memory proposals." };
-        const lines = items.map(
-          (p) =>
-            `[${p.id.slice(0, 8)}] ${p.category ?? "—"} | ${p.summary}${
-              p.topics.length > 0 ? ` (topics: ${p.topics.join(", ")})` : ""
-            }`,
-        );
-        return { success: true, output: lines.join("\n"), data: { pending: items } };
-      }
-
-      function handleAcceptPending() {
-        if (!args.id)
-          return { success: false, output: "id required for accept_pending", error: "missing_id" };
-        const writeScope = resolveWriteScope(args.scope);
-        if (writeScope === "disabled" || writeScope === "invalid") {
-          return {
-            success: false,
-            output: "scope must be 'project' or 'global'",
-            error: "bad_scope",
-          };
-        }
-        const fullId = resolvePendingId(args.id);
-        if (typeof fullId !== "string") return fullId;
-        const record = manager.acceptPending(fullId, writeScope);
-        if (!record)
-          return { success: false, output: `Pending not found: ${args.id}`, error: "not_found" };
-        return {
-          success: true,
-          output: `Accepted: "${record.summary}" (${record.id.slice(0, 8)}, ${writeScope})`,
-          data: { id: record.id, scope: writeScope },
-        };
-      }
-
-      function handleRejectPending() {
-        if (!args.id)
-          return { success: false, output: "id required for reject_pending", error: "missing_id" };
-        const fullId = resolvePendingId(args.id);
-        if (typeof fullId !== "string") return fullId;
-        const ok = manager.rejectPending(fullId);
-        if (!ok)
-          return { success: false, output: `Pending not found: ${args.id}`, error: "not_found" };
-        return { success: true, output: `Rejected pending ${fullId.slice(0, 8)}` };
-      }
-
       function handlePin(pin: boolean) {
         if (!args.id) {
           return { success: false, output: "id required", error: "missing_id" };
@@ -433,35 +369,6 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
       return { success: false, output: ambiguousMsg(input, r.ambiguous), error: "ambiguous_id" };
     }
     return r.id;
-  }
-
-  /** Same shape as resolveAndCheckScope but for the pending store (no scope). */
-  function resolvePendingId(
-    input: string,
-  ): string | { success: false; output: string; error: string } {
-    const items = manager.listPending();
-    const exact = items.find((p) => p.id === input);
-    if (exact) return exact.id;
-    if (input.length < 4) {
-      return { success: false, output: `Pending not found: ${input}`, error: "not_found" };
-    }
-    const prefix = items.filter((p) => p.id.startsWith(input));
-    if (prefix.length === 0) {
-      return { success: false, output: `Pending not found: ${input}`, error: "not_found" };
-    }
-    if (prefix.length > 1) {
-      return {
-        success: false,
-        output: ambiguousMsg(
-          input,
-          prefix.map((p) => p.id),
-        ),
-        error: "ambiguous_id",
-      };
-    }
-    return (
-      prefix[0]?.id ?? { success: false, output: `Pending not found: ${input}`, error: "not_found" }
-    );
   }
 
   function resolveReadScope(
