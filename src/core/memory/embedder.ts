@@ -206,8 +206,14 @@ export function bufferToVector(buf: Buffer | Uint8Array): Float32Array {
   return new Float32Array(aligned);
 }
 
-/** Compose embedding source from a memory's content fields. */
+/** Compose embedding source from a memory's content fields.
+ * Summary is the headline — it carries the most signal — so we triplicate it
+ * before details/topics so it dominates the cosine instead of being drowned
+ * by a long details body. */
 export function memoryEmbedSource(summary: string, details: string, topics: string[]): string {
-  const t = topics.join(" ");
-  return `${summary}\n${details}\n${t}`.trim();
+  const s = summary.trim();
+  const t = topics.join(" ").trim();
+  const d = details.trim();
+  if (!s && !d && !t) return "";
+  return `${s} ${s} ${s}\n${d}\n${t}`.trim();
 }

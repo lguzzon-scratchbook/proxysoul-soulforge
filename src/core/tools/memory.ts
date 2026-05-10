@@ -64,11 +64,22 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
       "  get     — full record by id (8-char prefix accepted).",
       "  pin/unpin — pinned rows survive cleanup + rank higher in recall.",
       "  delete  — soft-delete (restorable via restore).",
+      "  supersede — collapse a near-duplicate: pass id (old) + new_id (replacement). Old row is hidden but audit trail kept via superseded_by. Preferred over delete when consolidating duplicates surfaced by similar_hints.",
       "",
       "Scopes: 'project' (write default, .soulforge/memory.db) vs 'global' (~/.soulforge/memory.db). Read default 'all'.",
     ].join("\n"),
     inputSchema: z.object({
-      action: z.enum(["write", "get", "list", "search", "delete", "restore", "pin", "unpin"]),
+      action: z.enum([
+        "write",
+        "get",
+        "list",
+        "search",
+        "delete",
+        "restore",
+        "pin",
+        "unpin",
+        "supersede",
+      ]),
       scope: z
         .enum(["global", "project", "both", "all"])
         .nullable()
@@ -130,6 +141,8 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
             return handlePin(true);
           case "unpin":
             return handlePin(false);
+          case "supersede":
+            return handleSupersede();
           default:
             return {
               success: false,
@@ -333,6 +346,44 @@ export function createMemoryTool(deps: MemoryManager | CreateMemoryToolDeps) {
         const ok = manager.restore(scope, fullId);
         if (!ok) return { success: false, output: `Not found: ${args.id}`, error: "not_found" };
         return { success: true, output: `Restored ${fullId.slice(0, 8)}` };
+      }
+
+      function handleSupersede() {
+        if (!args.id || !args.new_id) {
+          return {
+            success: false,
+            output: "supersede requires both id (old) and new_id (replacement)",
+            error: "missing_id",
+          };
+        }
+        const scope = resolveWriteScope(args.scope);
+        if (scope === "disabled" || scope === "invalid") {
+          return {
+            success: false,
+            output: "scope must be 'project' or 'global' for supersede",
+            error: "bad_scope",
+          };
+        }
+        const oldId = resolveAndCheckScope(scope, args.id, "supersede");
+        if (typeof oldId !== "string") return oldId;
+        const newId = resolveAndCheckScope(scope, args.new_id, "supersede");
+        if (typeof newId !== "string") return newId;
+        if (oldId === newId) {
+          return {
+            success: false,
+            output: "Cannot supersede a memory with itself",
+            error: "bad_id",
+          };
+        }
+        const ok = manager.supersede(scope, oldId, newId);
+        if (!ok) {
+          return { success: false, output: `Supersede failed for ${args.id}`, error: "not_found" };
+        }
+        return {
+          success: true,
+          output: `Superseded ${oldId.slice(0, 8)} → ${newId.slice(0, 8)} (old row hidden, audit trail preserved)`,
+          data: { old_id: oldId, new_id: newId, scope },
+        };
       }
 
       function handlePin(pin: boolean) {
