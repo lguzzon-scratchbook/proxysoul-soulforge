@@ -205,7 +205,7 @@ jobs:
                 # post_install may have failed — decompress if still gzipped
                 if [ -f "\$CELLAR/soulforge.gz" ] && [ ! -f "\$CELLAR/soulforge" ]; then
                   gunzip "\$CELLAR/soulforge.gz" 2>/dev/null || true
-                  find "\$CELLAR/deps/native" -name "*.gz" -exec gunzip {} \\; 2>/dev/null || true
+                  find "\$CELLAR/deps/native" -name "*.gz" -exec gunzip {} + 2>/dev/null || true
                   chmod +x "\$CELLAR/soulforge" 2>/dev/null || true
                 fi
 
