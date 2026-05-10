@@ -505,4 +505,28 @@ export class MemoryManager {
   getProviderEmbedder(): ProviderEmbedder | null {
     return this._providerEmbedder;
   }
+
+  /**
+   * Configure a provider-backed embedder by AI SDK model id (e.g.
+   * "openai/text-embedding-3-small"). Pass null/empty to fall back to hashbag.
+   * Backfills in the background — does not block. Returns the provider
+   * once wired so callers can pass it to MemoryRecall.setProviderEmbedder.
+   */
+  async configureEmbedder(modelId: string | null | undefined): Promise<ProviderEmbedder | null> {
+    if (!modelId) {
+      this._providerEmbedder = null;
+      return null;
+    }
+    try {
+      const { createAiSdkEmbedder } = await import("./embedder.js");
+      const provider = await createAiSdkEmbedder(modelId);
+      this._providerEmbedder = provider;
+      // Kick off a background backfill so legacy rows pick up the new model.
+      void this.backfillEmbeddings("all", 200).catch(() => {});
+      return provider;
+    } catch {
+      this._providerEmbedder = null;
+      return null;
+    }
+  }
 }

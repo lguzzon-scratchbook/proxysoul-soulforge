@@ -128,6 +128,7 @@ export class ContextManager {
         this.startRepoMapScan();
       }
     }
+    this.maybeWireMemoryEmbedder();
     // Eagerly populate project info cache so sync callers get data immediately
     this.refreshProjectInfo();
   }
@@ -161,6 +162,7 @@ export class ContextManager {
       cm.wireRepoMapCallbacks();
       cm.startRepoMapScan();
     }
+    await cm.maybeWireMemoryEmbedder();
     return cm;
   }
 
@@ -1483,6 +1485,23 @@ export class ContextManager {
       this.fileTreeCache = { tree, at: Date.now() };
     } catch {}
     this.fileTreeRefreshing = false;
+  }
+
+  /**
+   * Read AppConfig.memory.embeddingModel and wire the provider embedder
+   * onto both MemoryManager (for writes/backfill) and MemoryRecall (for
+   * query-time vectors). Best-effort — failures fall back to hashbag-v2
+   * silently. Re-runs are safe; idempotent on the same model id.
+   */
+  private async maybeWireMemoryEmbedder(): Promise<void> {
+    try {
+      const { loadConfig } = await import("../../config/index.js");
+      const cfg = loadConfig();
+      const modelId = cfg.memory?.embeddingModel ?? null;
+      if (!modelId) return;
+      const provider = await this.memoryManager.configureEmbedder(modelId);
+      if (provider) this.memoryRecall.setProviderEmbedder(provider);
+    } catch {}
   }
 }
 
