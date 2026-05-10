@@ -171,8 +171,8 @@ jobs:
                 sha256 "${SHA_LINUX_ARM64}"
               end
               if Hardware::CPU.intel?
-                # Use baseline build (no AVX) for pre-Sandy Bridge CPUs
-                if `grep -c avx /proc/cpuinfo 2>/dev/null`.strip.to_i > 0
+                # AVX detection: pre-Sandy Bridge CPUs need the baseline (SSE2-only) build.
+                if Hardware::CPU.flags.include?("avx")
                   url "https://github.com/ProxySoul/soulforge/releases/download/v#{version}/soulforge-#{version}-linux-x64.tar.gz"
                   sha256 "${SHA_LINUX_X64}"
                 else
