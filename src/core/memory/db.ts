@@ -1006,7 +1006,7 @@ export class MemoryDB {
    */
   embedAndLink(
     id: string,
-    threshold = 0.5,
+    threshold = 0.4,
     maxEdges = 8,
   ): Array<{ id: string; weight: number; summary: string }> {
     const record = this.read(id);
@@ -1251,7 +1251,7 @@ function isDbClosedError(err: unknown): boolean {
   const msg = err.message.toLowerCase();
   return msg.includes("closed") || msg.includes("not open") || msg.includes("misuse");
 }
-const SIMILAR_HINT_THRESHOLD = 0.65;
+const SIMILAR_HINT_THRESHOLD = 0.55;
 function trigramSet(text: string): Set<string> {
   const t = text.toLowerCase().replace(/\s+/g, " ").trim();
   const out = new Set<string>();

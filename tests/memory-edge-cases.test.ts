@@ -554,7 +554,7 @@ describe("MemoryDB — embeddings + edges edge cases", () => {
         `UPDATE memories SET embedding_model = 'other-v2' WHERE id = ?`,
         [b.record.id],
       );
-      const ours = db.listEmbeddings("hashbag-v1").map((e) => e.id);
+      const ours = db.listEmbeddings("hashbag-v2").map((e) => e.id);
       expect(ours).toContain(a.record.id);
       expect(ours).not.toContain(b.record.id);
     } finally {

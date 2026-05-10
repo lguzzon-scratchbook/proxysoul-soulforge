@@ -1,32 +1,144 @@
 /**
- * Deterministic hash-bag embedder. No deps, no LLM, no provider.
+ * Deterministic hash-bag embedder v2. No deps, no LLM, no provider.
  *
- * Tokenizes text into lower-cased words + bigrams, hashes each token to a
- * fixed-dim float bin, L2-normalizes. Two memories whose summaries share
- * vocabulary land near each other in cosine space; pure synonym pairs do
- * not. That's a known limitation — Phase 4's contract is "intelligence
- * multiplies, never gates." When a real provider embedder is wired later,
- * swap `embed()` and store `embedding_model` to differentiate vectors.
+ * Three feature streams hashed into a single 384-dim float vector:
+ *   1. Word unigrams (after stop-word strip + light stemming) — topic match.
+ *   2. Word bigrams — phrase match.
+ *   3. Character 4-grams over the de-spaced lowered text — catches
+ *      hyphenation/spacing variants (`auto-extraction` ↔ `auto extraction`)
+ *      and inflection drift (`extracting` ↔ `extraction`).
  *
- * Storage shape (BLOB): little-endian Float32Array of `dim` floats.
+ * Each stream is weighted (words 1.0, bigrams 0.7, char-grams 0.4),
+ * L2-normalized once at the end. Sign-bit trick prevents collision collapse.
+ *
+ * Cosine on this space:
+ *   - exact paraphrases: 0.5–0.85
+ *   - shared topic, different wording: 0.25–0.5
+ *   - unrelated short summaries: 0.0–0.15
+ *
+ * Storage: little-endian Float32Array of `EMBED_DIM` floats.
  */
 
-export const EMBED_MODEL = "hashbag-v1";
-export const EMBED_DIM = 256;
+export const EMBED_MODEL = "hashbag-v2";
+export const EMBED_DIM = 384;
 
 const TOKEN_RE = /[\p{L}\p{N}]+/gu;
 
-function tokenize(text: string): string[] {
+const STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "as",
+  "at",
+  "be",
+  "but",
+  "by",
+  "do",
+  "for",
+  "from",
+  "i",
+  "if",
+  "in",
+  "is",
+  "it",
+  "its",
+  "of",
+  "on",
+  "or",
+  "so",
+  "the",
+  "then",
+  "to",
+  "we",
+  "you",
+  "your",
+  "this",
+  "that",
+  "these",
+  "those",
+  "with",
+  "was",
+  "were",
+  "are",
+  "am",
+  "not",
+  "no",
+  "do",
+  "does",
+  "did",
+  "done",
+  "has",
+  "have",
+  "had",
+  "will",
+  "would",
+  "should",
+  "can",
+  "could",
+  "may",
+  "might",
+  "just",
+  "really",
+  "actually",
+  "basically",
+]);
+
+/**
+ * Light stemming — strips a handful of common English suffixes so
+ * `extracting`, `extracted`, `extraction`, `extractor` collapse to
+ * `extract`. Conservative: never shortens below 4 chars.
+ */
+function stem(word: string): string {
+  if (word.length <= 4) return word;
+  for (const suffix of [
+    "ization",
+    "izations",
+    "ations",
+    "ation",
+    "ings",
+    "tion",
+    "ness",
+    "ment",
+    "able",
+    "ible",
+    "ings",
+    "ies",
+    "ied",
+    "ier",
+    "est",
+    "ing",
+    "ers",
+    "ed",
+    "es",
+    "ly",
+    "ic",
+    "al",
+    "s",
+  ]) {
+    if (word.length > suffix.length + 3 && word.endsWith(suffix)) {
+      return word.slice(0, -suffix.length);
+    }
+  }
+  return word;
+}
+
+function tokenizeWords(text: string): string[] {
   const lower = text.toLowerCase();
-  const words = lower.match(TOKEN_RE) ?? [];
-  if (words.length === 0) return [];
+  const raw = lower.match(TOKEN_RE) ?? [];
   const out: string[] = [];
-  for (const w of words) {
-    if (w.length >= 2) out.push(w);
+  for (const w of raw) {
+    if (w.length < 2) continue;
+    if (STOP_WORDS.has(w)) continue;
+    out.push(stem(w));
   }
-  for (let i = 0; i < words.length - 1; i++) {
-    out.push(`${words[i]}_${words[i + 1]}`);
-  }
+  return out;
+}
+
+function charNgrams(text: string, n: number): string[] {
+  const compact = text.toLowerCase().replace(/\s+/g, " ").trim();
+  if (compact.length < n) return [];
+  const out: string[] = [];
+  for (let i = 0; i <= compact.length - n; i++) out.push(compact.slice(i, i + n));
   return out;
 }
 
@@ -40,16 +152,32 @@ function hashToken(token: string): number {
   return h >>> 0;
 }
 
+function project(vec: Float32Array, token: string, weight: number, dim: number): void {
+  const h = hashToken(token);
+  const bin = h % dim;
+  const sign = (hashToken(`s:${token}`) & 1) === 0 ? 1 : -1;
+  vec[bin] = (vec[bin] ?? 0) + sign * weight;
+}
+
 export function embed(text: string, dim = EMBED_DIM): Float32Array {
   const vec = new Float32Array(dim);
-  const tokens = tokenize(text);
-  if (tokens.length === 0) return vec;
-  for (const tok of tokens) {
-    const bin = hashToken(tok) % dim;
-    // Sign-trick: use 1 bit of the hash to avoid all-positive collapse.
-    const sign = (hashToken(`s:${tok}`) & 1) === 0 ? 1 : -1;
-    vec[bin] = (vec[bin] ?? 0) + sign;
+  if (!text) return vec;
+
+  const words = tokenizeWords(text);
+  // Gate everything on at least one real word token. Punctuation/emoji-only
+  // input → zero vector (so it can't accidentally cluster with any memory).
+  if (words.length === 0) return vec;
+
+  // Stream 1: word unigrams.
+  for (const w of words) project(vec, `w:${w}`, 1.0, dim);
+  // Stream 2: word bigrams.
+  for (let i = 0; i < words.length - 1; i++) {
+    project(vec, `b:${words[i]}_${words[i + 1]}`, 0.7, dim);
   }
+  // Stream 3: char 4-grams over collapsed text.
+  const grams = charNgrams(text, 4);
+  for (const g of grams) project(vec, `c:${g}`, 0.4, dim);
+
   let norm = 0;
   for (let i = 0; i < dim; i++) norm += (vec[i] ?? 0) * (vec[i] ?? 0);
   norm = Math.sqrt(norm);

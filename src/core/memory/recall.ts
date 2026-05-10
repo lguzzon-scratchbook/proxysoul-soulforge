@@ -286,19 +286,21 @@ function computeSignals(input: SignalInputs): MemoryRecallSignals {
 
 function combineScore(signals: MemoryRecallSignals): number {
   // RRF over directional signals (FTS hits + file affinity + semantic rank)
-  // PLUS a magnitude term from the raw cosine. RRF alone gives ~0.016 per
-  // signal — far smaller than recency penalty / pinned bonus, so a strong
-  // semantic match would lose to a recently-used unrelated row. The cosine
-  // term scales with actual similarity (capped at 1) so high-quality matches
-  // dominate the bonus.
+  // PLUS a magnitude term scaled to the embedder's actual paraphrase range.
+  // Hashbag-v2 puts paraphrases at 0.3-0.9 and unrelated <0.15. Semantic
+  // gets extra weight because FTS matches anything sharing a token (noisy)
+  // while semantic ranks by meaning. Strong cosine matches dominate.
   let directional = 0;
   if (signals.fts_unicode !== null) directional += 1 / (RRF_K + signals.fts_unicode);
   if (signals.fts_trigram !== null) directional += 1 / (RRF_K + signals.fts_trigram);
   if (signals.file_affinity > 0) directional += 1 / (RRF_K + 1);
-  if (signals.semantic_rank !== null) directional += 1 / (RRF_K + signals.semantic_rank);
+  if (signals.semantic_rank !== null) directional += 2 / (RRF_K + signals.semantic_rank);
   if (directional === 0) return 0;
 
-  const semanticMagnitude = signals.semantic !== null ? 0.5 * signals.semantic : 0;
+  // Quadratic boost on cosine: weak matches contribute little, strong
+  // matches dominate. 0.4² × 1.5 = 0.24; 0.7² × 1.5 = 0.74; 0.85² × 1.5 = 1.08.
+  const sem = signals.semantic ?? 0;
+  const semanticMagnitude = sem > 0 ? 1.5 * sem * sem + 0.1 * sem : 0;
   const bonus =
     signals.use_count + signals.recency + signals.blast_radius + signals.pinned + semanticMagnitude;
   return directional + bonus;
@@ -326,7 +328,7 @@ function collectSemanticHits(
   db: DbLike,
   query: string,
   limit = 20,
-  threshold = 0.12,
+  threshold = 0.18,
 ): Array<{ id: string; weight: number }> {
   if (!query || !db.listEmbeddings) return [];
   const qVec = embed(memoryEmbedSource(query, "", []));
