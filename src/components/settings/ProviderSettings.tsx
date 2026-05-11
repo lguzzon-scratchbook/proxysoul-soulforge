@@ -33,8 +33,25 @@ function isSection(item: SettingItem): item is SettingSection {
   return item.type === "section";
 }
 
-type ProviderTab = "claude" | "openai" | "general";
-const TABS: ProviderTab[] = ["claude", "openai", "general"];
+type ProviderTab =
+  | "claude"
+  | "openai"
+  | "google"
+  | "xai"
+  | "deepseek"
+  | "openrouter"
+  | "compat"
+  | "general";
+const TABS: ProviderTab[] = [
+  "claude",
+  "openai",
+  "google",
+  "xai",
+  "deepseek",
+  "openrouter",
+  "compat",
+  "general",
+];
 
 const CLAUDE_ITEMS: SettingItem[] = [
   { type: "section", label: "Reasoning" },
@@ -128,6 +145,20 @@ const OPENAI_ITEMS: SettingItem[] = [
     type: "cycle",
     options: ["off", "none", "minimal", "low", "medium", "high", "xhigh"],
   },
+  {
+    key: "openaiReasoningSummary",
+    label: "Reasoning summary",
+    desc: "Include synthesized reasoning summary in the response",
+    type: "cycle",
+    options: ["off", "auto", "detailed"],
+  },
+  {
+    key: "openaiVerbosity",
+    label: "Verbosity",
+    desc: "gpt-5+ — controls answer length",
+    type: "cycle",
+    options: ["off", "low", "medium", "high"],
+  },
   { type: "section", label: "Service" },
   {
     key: "serviceTier",
@@ -162,9 +193,113 @@ const GENERAL_ITEMS: SettingItem[] = [
   },
 ];
 
+const GOOGLE_ITEMS: SettingItem[] = [
+  { type: "section", label: "Gemini 3+" },
+  {
+    key: "googleThinkingLevel",
+    label: "Thinking level",
+    desc: "Gemini 3 / 3.1 — depth of internal reasoning",
+    type: "cycle",
+    options: ["off", "minimal", "low", "medium", "high"],
+  },
+  { type: "section", label: "Gemini 2.5" },
+  {
+    key: "googleThinkingBudget",
+    label: "Thinking budget",
+    desc: "Token budget for Gemini 2.5 thinking. 0 = disabled",
+    type: "cycle",
+    options: ["off", "0", "1024", "4096", "8192", "16384", "24576"],
+  },
+  { type: "section", label: "Output" },
+  {
+    key: "googleIncludeThoughts",
+    label: "Include thoughts",
+    desc: "Return thought summaries in the response",
+    type: "toggle",
+  },
+];
+
+const XAI_ITEMS: SettingItem[] = [
+  { type: "section", label: "Reasoning" },
+  {
+    key: "xaiReasoningEffort",
+    label: "Effort",
+    desc: "grok-3-mini / grok-4* — chat: low/high · responses: low/medium/high",
+    type: "cycle",
+    options: ["off", "low", "medium", "high"],
+  },
+];
+
+const DEEPSEEK_ITEMS: SettingItem[] = [
+  { type: "section", label: "Reasoning" },
+  {
+    key: "deepseekThinking",
+    label: "Thinking",
+    desc: "deepseek-chat only — reasoner auto-thinks. Enables CoT generation.",
+    type: "cycle",
+    options: ["off", "enabled"],
+  },
+];
+
+const OPENROUTER_ITEMS: SettingItem[] = [
+  { type: "section", label: "Unified reasoning" },
+  {
+    key: "openrouterReasoningEffort",
+    label: "Effort",
+    desc: "Maps to upstream provider's native shape (Anthropic budget · OpenAI effort · Gemini level)",
+    type: "cycle",
+    options: ["off", "minimal", "low", "medium", "high", "xhigh", "none"],
+  },
+  {
+    key: "openrouterReasoningMaxTokens",
+    label: "Max tokens",
+    desc: "Anthropic-style token budget. Takes priority over Effort when set.",
+    type: "cycle",
+    options: ["off", "1024", "2048", "4096", "8192", "16384"],
+  },
+  { type: "section", label: "Output" },
+  {
+    key: "openrouterExcludeReasoning",
+    label: "Hide reasoning",
+    desc: "Model still reasons but tokens are not returned in the response",
+    type: "toggle",
+  },
+];
+
+const COMPAT_ITEMS: SettingItem[] = [
+  { type: "section", label: "OpenAI-compatible body injection" },
+  {
+    key: "compatReasoningEffort",
+    label: "Effort",
+    desc: "Used by Groq, Fireworks, LM Studio, Ollama, opencode-go / -zen, Copilot, GitHub Models, MiniMax",
+    type: "cycle",
+    options: ["off", "low", "medium", "high", "xhigh"],
+  },
+  { type: "section", label: "Groq" },
+  {
+    key: "groqReasoningEffort",
+    label: "Groq override",
+    desc: "Override for Groq when both are set. qwen3 / gpt-oss / deepseek-r1 SKUs.",
+    type: "cycle",
+    options: ["off", "low", "medium", "high"],
+  },
+  {
+    key: "groqReasoningFormat",
+    label: "Groq format",
+    desc: "How reasoning appears in the Groq response payload",
+    type: "cycle",
+    options: ["off", "parsed", "raw", "hidden"],
+  },
+];
+
 const TAB_ITEMS: Record<ProviderTab, SettingItem[]> = {
   claude: CLAUDE_ITEMS,
   openai: OPENAI_ITEMS,
+  google: GOOGLE_ITEMS,
+  xai: XAI_ITEMS,
+  deepseek: DEEPSEEK_ITEMS,
+  openrouter: OPENROUTER_ITEMS,
+  compat: COMPAT_ITEMS,
   general: GENERAL_ITEMS,
 };
 
@@ -186,6 +321,19 @@ interface CurrentValues {
   clearToolUses: boolean;
   clearThinking: boolean;
   pruning: string;
+  googleThinkingLevel: string;
+  googleThinkingBudget: string;
+  googleIncludeThoughts: boolean;
+  xaiReasoningEffort: string;
+  deepseekThinking: string;
+  openrouterReasoningEffort: string;
+  openrouterReasoningMaxTokens: string;
+  openrouterExcludeReasoning: boolean;
+  compatReasoningEffort: string;
+  groqReasoningEffort: string;
+  openaiReasoningSummary: string;
+  openaiVerbosity: string;
+  groqReasoningFormat: string;
 }
 
 const DEFAULTS: CurrentValues = {
@@ -206,6 +354,19 @@ const DEFAULTS: CurrentValues = {
   clearToolUses: false,
   clearThinking: true,
   pruning: "none",
+  googleThinkingLevel: "off",
+  googleThinkingBudget: "off",
+  googleIncludeThoughts: false,
+  xaiReasoningEffort: "off",
+  deepseekThinking: "off",
+  openrouterReasoningEffort: "off",
+  openrouterReasoningMaxTokens: "off",
+  openrouterExcludeReasoning: false,
+  compatReasoningEffort: "off",
+  groqReasoningEffort: "off",
+  openaiReasoningSummary: "off",
+  openaiVerbosity: "off",
+  groqReasoningFormat: "off",
 };
 
 function readValuesFromLayer(layer: Partial<AppConfig> | null): Partial<CurrentValues> {
@@ -224,6 +385,32 @@ function readValuesFromLayer(layer: Partial<AppConfig> | null): Partial<CurrentV
   if (layer.performance?.openaiReasoningEffort !== undefined)
     v.openaiReasoningEffort = layer.performance.openaiReasoningEffort;
   if (layer.performance?.serviceTier !== undefined) v.serviceTier = layer.performance.serviceTier;
+  if (layer.performance?.googleThinkingLevel !== undefined)
+    v.googleThinkingLevel = layer.performance.googleThinkingLevel;
+  if (layer.performance?.googleThinkingBudget !== undefined)
+    v.googleThinkingBudget = String(layer.performance.googleThinkingBudget);
+  if (layer.performance?.googleIncludeThoughts !== undefined)
+    v.googleIncludeThoughts = layer.performance.googleIncludeThoughts;
+  if (layer.performance?.xaiReasoningEffort !== undefined)
+    v.xaiReasoningEffort = layer.performance.xaiReasoningEffort;
+  if (layer.performance?.deepseekThinking !== undefined)
+    v.deepseekThinking = layer.performance.deepseekThinking;
+  if (layer.performance?.openrouterReasoningEffort !== undefined)
+    v.openrouterReasoningEffort = layer.performance.openrouterReasoningEffort;
+  if (layer.performance?.openrouterReasoningMaxTokens !== undefined)
+    v.openrouterReasoningMaxTokens = String(layer.performance.openrouterReasoningMaxTokens);
+  if (layer.performance?.openrouterExcludeReasoning !== undefined)
+    v.openrouterExcludeReasoning = layer.performance.openrouterExcludeReasoning;
+  if (layer.performance?.compatReasoningEffort !== undefined)
+    v.compatReasoningEffort = layer.performance.compatReasoningEffort;
+  if (layer.performance?.groqReasoningEffort !== undefined)
+    v.groqReasoningEffort = layer.performance.groqReasoningEffort;
+  if (layer.performance?.openaiReasoningSummary !== undefined)
+    v.openaiReasoningSummary = layer.performance.openaiReasoningSummary;
+  if (layer.performance?.openaiVerbosity !== undefined)
+    v.openaiVerbosity = layer.performance.openaiVerbosity;
+  if (layer.performance?.groqReasoningFormat !== undefined)
+    v.groqReasoningFormat = layer.performance.groqReasoningFormat;
   if (layer.codeExecution !== undefined) v.codeExecution = layer.codeExecution;
   if (layer.computerUse !== undefined) v.computerUse = layer.computerUse;
   if (layer.anthropicTextEditor !== undefined) v.anthropicTextEditor = layer.anthropicTextEditor;
@@ -266,6 +453,36 @@ function buildPatch(key: string, value: string | number | boolean): Partial<AppC
       return { performance: { openaiReasoningEffort: value as string } as PerformanceConfig };
     case "serviceTier":
       return { performance: { serviceTier: value as string } as PerformanceConfig };
+    case "googleThinkingLevel":
+      return { performance: { googleThinkingLevel: value as string } as PerformanceConfig };
+    case "googleThinkingBudget": {
+      const v = value === "off" ? "off" : Number(value);
+      return { performance: { googleThinkingBudget: v } as PerformanceConfig };
+    }
+    case "googleIncludeThoughts":
+      return { performance: { googleIncludeThoughts: value as boolean } as PerformanceConfig };
+    case "xaiReasoningEffort":
+      return { performance: { xaiReasoningEffort: value as string } as PerformanceConfig };
+    case "deepseekThinking":
+      return { performance: { deepseekThinking: value as string } as PerformanceConfig };
+    case "openrouterReasoningEffort":
+      return { performance: { openrouterReasoningEffort: value as string } as PerformanceConfig };
+    case "openrouterReasoningMaxTokens": {
+      const v = value === "off" ? "off" : Number(value);
+      return { performance: { openrouterReasoningMaxTokens: v } as PerformanceConfig };
+    }
+    case "openrouterExcludeReasoning":
+      return { performance: { openrouterExcludeReasoning: value as boolean } as PerformanceConfig };
+    case "compatReasoningEffort":
+      return { performance: { compatReasoningEffort: value as string } as PerformanceConfig };
+    case "groqReasoningEffort":
+      return { performance: { groqReasoningEffort: value as string } as PerformanceConfig };
+    case "openaiReasoningSummary":
+      return { performance: { openaiReasoningSummary: value as string } as PerformanceConfig };
+    case "openaiVerbosity":
+      return { performance: { openaiVerbosity: value as string } as PerformanceConfig };
+    case "groqReasoningFormat":
+      return { performance: { groqReasoningFormat: value as string } as PerformanceConfig };
     case "codeExecution":
       return { codeExecution: value as boolean };
     case "computerUse":
@@ -456,6 +673,11 @@ export function ProviderSettings({
       tabs={[
         { id: "claude", label: "Claude", icon: "ai", blurb: "thinking · reasoning · beta" },
         { id: "openai", label: "OpenAI", icon: "ai", blurb: "reasoning · service tier" },
+        { id: "google", label: "Gemini", icon: "ai", blurb: "thinking level · budget" },
+        { id: "xai", label: "Grok", icon: "ai", blurb: "reasoning effort" },
+        { id: "deepseek", label: "DeepSeek", icon: "ai", blurb: "thinking toggle" },
+        { id: "openrouter", label: "OpenRouter", icon: "cloud", blurb: "unified reasoning" },
+        { id: "compat", label: "Compat", icon: "cloud", blurb: "OpenAI-compatible body inject" },
         { id: "general", label: "General", icon: "cloud", blurb: "shared options" },
       ]}
       activeTab={tab}

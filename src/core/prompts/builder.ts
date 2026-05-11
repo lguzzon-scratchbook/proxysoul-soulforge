@@ -26,6 +26,9 @@ const FAMILY_PROMPTS: Record<string, string> = {
   claude: CLAUDE_PROMPT,
   openai: OPENAI_PROMPT,
   google: GOOGLE_PROMPT,
+  // xAI and DeepSeek use OpenAI-style prompts — their models respond best to that shape.
+  xai: OPENAI_PROMPT,
+  deepseek: OPENAI_PROMPT,
   other: DEFAULT_PROMPT,
 };
 

@@ -1,7 +1,9 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
+import { loadConfig } from "../../../config/index.js";
 import { getProviderApiKey } from "../../secrets.js";
 import { CURRENT_VERSION } from "../../version.js";
+import { getCompatReasoningBody } from "../compat-reasoning.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 const ENV_VAR = "COPILOT_API_KEY";
@@ -91,7 +93,11 @@ function detectInitiator(body: unknown): "agent" | "user" {
   return "user";
 }
 
-function createCopilotFetch(githubToken: string): typeof fetch {
+function createCopilotFetch(
+  githubToken: string,
+  reasoningBody: Record<string, unknown>,
+): typeof fetch {
+  const injectReasoning = Object.keys(reasoningBody).length > 0;
   // biome-ignore lint/suspicious/noExplicitAny: Bun fetch type mismatch with preconnect
   return (async (url: any, init: any) => {
     let bearer: string;
@@ -101,18 +107,25 @@ function createCopilotFetch(githubToken: string): typeof fetch {
       invalidateBearer();
       bearer = await exchangeToken(githubToken);
     }
+    let patchedBody = init?.body;
+    if (injectReasoning && typeof init?.body === "string") {
+      try {
+        const parsed = JSON.parse(init.body);
+        patchedBody = JSON.stringify({ ...parsed, ...reasoningBody });
+      } catch {}
+    }
     const buildHeaders = (token: string): Headers => {
       const h = new Headers(init?.headers);
       h.set("Authorization", `Bearer ${token}`);
       h.set("X-Request-Id", crypto.randomUUID());
-      h.set("X-Initiator", detectInitiator(init?.body));
+      h.set("X-Initiator", detectInitiator(patchedBody));
       return h;
     };
-    const res = await fetch(url, { ...init, headers: buildHeaders(bearer) });
+    const res = await fetch(url, { ...init, body: patchedBody, headers: buildHeaders(bearer) });
     if (res.status === 401) {
       invalidateBearer();
       const retryBearer = await exchangeToken(githubToken);
-      return fetch(url, { ...init, headers: buildHeaders(retryBearer) });
+      return fetch(url, { ...init, body: patchedBody, headers: buildHeaders(retryBearer) });
     }
     return res;
   }) as typeof fetch;
@@ -137,7 +150,8 @@ function assertChatCompletionsSupported(modelId: string): void {
 function createCopilotModel(modelId: string): LanguageModel {
   assertChatCompletionsSupported(modelId);
   const githubToken = getGitHubToken();
-  const copilotFetch = createCopilotFetch(githubToken);
+  const reasoningBody = getCompatReasoningBody(`copilot/${modelId}`, loadConfig());
+  const copilotFetch = createCopilotFetch(githubToken, reasoningBody);
 
   // Copilot exposes /chat/completions for both OpenAI and Claude models
   // (translated server-side). The /responses path requires a separate parser

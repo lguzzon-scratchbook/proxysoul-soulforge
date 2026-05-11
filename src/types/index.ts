@@ -195,6 +195,20 @@ export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
 type OpenAIReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 type ServiceTier = "auto" | "flex" | "priority" | "default";
 
+export type GoogleThinkingLevel = "off" | "minimal" | "low" | "medium" | "high";
+export type XaiReasoningEffort = "off" | "low" | "medium" | "high";
+export type DeepseekThinking = "off" | "enabled";
+export type OpenRouterReasoningEffort =
+  | "off"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "none";
+export type GroqReasoningEffort = "off" | "low" | "medium" | "high";
+export type CompatReasoningEffort = "off" | "low" | "medium" | "high" | "xhigh";
+
 export interface PerformanceConfig {
   /** Effort level for model reasoning. "off" = not sent to API. */
   effort?: EffortLevel | "off";
@@ -210,6 +224,32 @@ export interface PerformanceConfig {
   openaiReasoningEffort?: OpenAIReasoningEffort | "off";
   /** OpenAI service tier — "flex" saves 50% with latency trade-off. */
   serviceTier?: ServiceTier | "off";
+  /** OpenAI reasoning summary level — "detailed" | "auto" | "off" */
+  openaiReasoningSummary?: "off" | "auto" | "detailed";
+  /** OpenAI gpt-5 verbosity — controls answer length. */
+  openaiVerbosity?: "off" | "low" | "medium" | "high";
+  /** Groq reasoning output format — "parsed" | "raw" | "hidden" */
+  groqReasoningFormat?: "off" | "parsed" | "raw" | "hidden";
+  /** Google Gemini 3+ thinkingLevel. "off" = not sent. */
+  googleThinkingLevel?: GoogleThinkingLevel;
+  /** Google Gemini 2.5 thinkingBudget in tokens. "off" = not sent. 0 disables. */
+  googleThinkingBudget?: number | "off";
+  /** Include thought summaries in Gemini responses. Default: false. */
+  googleIncludeThoughts?: boolean;
+  /** xAI Grok reasoning effort (chat: low/high; responses: low/medium/high). */
+  xaiReasoningEffort?: XaiReasoningEffort;
+  /** DeepSeek thinking — only applies to deepseek-chat (reasoner auto-thinks). */
+  deepseekThinking?: DeepseekThinking;
+  /** OpenRouter unified reasoning effort. */
+  openrouterReasoningEffort?: OpenRouterReasoningEffort;
+  /** OpenRouter max_tokens for reasoning. Anthropic-style budget. "off" = not sent. */
+  openrouterReasoningMaxTokens?: number | "off";
+  /** OpenRouter — exclude reasoning tokens from response (still computed). */
+  openrouterExcludeReasoning?: boolean;
+  /** Groq reasoning effort for qwen3/gpt-oss/deepseek-r1 SKUs. */
+  groqReasoningEffort?: GroqReasoningEffort;
+  /** OpenAI-compatible body-injection reasoning effort. Used by groq/fireworks/lmstudio/ollama/copilot/github-models/opencode-go/opencode-zen/deepseek-chat fallback when no native providerOptions key exists. */
+  compatReasoningEffort?: CompatReasoningEffort;
 }
 
 type PruningTarget = "none" | "main" | "subagents" | "both";

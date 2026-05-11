@@ -1,5 +1,8 @@
 import { createOpenAI } from "@ai-sdk/openai";
+import { loadConfig } from "../../../config/index.js";
 import { getProviderApiKey } from "../../secrets.js";
+import { getCompatReasoningBody } from "../compat-reasoning.js";
+import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 const ENV_VAR = "GITHUB_MODELS_API_KEY";
@@ -35,7 +38,14 @@ export const githubModels: ProviderDefinition = {
         `${ENV_VAR} is not set. Create a fine-grained PAT with models:read at github.com/settings/tokens`,
       );
     }
-    return createOpenAI({ baseURL: BASE_URL, apiKey, headers: GH_HEADERS }).chat(modelId);
+    const reasoningBody = getCompatReasoningBody(`github-models/${modelId}`, loadConfig());
+    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+    return createOpenAI({
+      baseURL: BASE_URL,
+      apiKey,
+      headers: GH_HEADERS,
+      ...(reasoningFetch ? { fetch: reasoningFetch as typeof fetch } : {}),
+    }).chat(modelId);
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {

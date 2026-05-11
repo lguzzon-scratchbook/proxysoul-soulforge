@@ -4,7 +4,7 @@ import { getModelContextWindow } from "./models.js";
 import { getProvider } from "./providers/index.js";
 
 interface ModelCapabilities {
-  provider: "anthropic" | "openai" | "google" | "other";
+  provider: "anthropic" | "openai" | "google" | "xai" | "deepseek" | "other";
   thinking: boolean;
   adaptiveThinking: boolean;
   effort: boolean;
@@ -13,21 +13,51 @@ interface ModelCapabilities {
   interleavedThinking: boolean;
   openaiReasoning: boolean;
   openaiServiceTier: boolean;
+  googleThinking: boolean;
+  /** Use thinkingLevel (Gemini 3+) vs thinkingBudget (Gemini 2.5). */
+  googleThinkingLevel: boolean;
+  xaiReasoning: boolean;
+  deepseekThinking: boolean;
+  openrouterReasoning: boolean;
+  /** Body-injection reasoning_effort for OpenAI-compatible reasoning SKUs. */
+  compatReasoning: boolean;
 }
 
 interface ProviderConstraints {
   anthropicOptions: boolean;
   openaiOptions: boolean;
+  googleOptions: boolean;
+  xaiOptions: boolean;
+  deepseekOptions: boolean;
+  openrouterOptions: boolean;
+  bedrockOptions: boolean;
   effort: boolean;
   speed: boolean;
   contextManagement: boolean;
   adaptiveThinking: boolean;
   interleavedThinking: boolean;
+  compatReasoningBody: boolean;
 }
 
-const ANTHROPIC_FULL: ProviderConstraints = {
-  anthropicOptions: true,
+const NO_SUPPORT: ProviderConstraints = {
+  anthropicOptions: false,
   openaiOptions: false,
+  googleOptions: false,
+  xaiOptions: false,
+  deepseekOptions: false,
+  openrouterOptions: false,
+  bedrockOptions: false,
+  effort: false,
+  speed: false,
+  contextManagement: false,
+  adaptiveThinking: false,
+  interleavedThinking: false,
+  compatReasoningBody: false,
+};
+
+const ANTHROPIC_FULL: ProviderConstraints = {
+  ...NO_SUPPORT,
+  anthropicOptions: true,
   effort: true,
   speed: true,
   contextManagement: true,
@@ -36,46 +66,89 @@ const ANTHROPIC_FULL: ProviderConstraints = {
 };
 
 const OPENAI_FULL: ProviderConstraints = {
-  anthropicOptions: false,
+  ...NO_SUPPORT,
   openaiOptions: true,
-  effort: false,
-  speed: false,
-  contextManagement: false,
-  adaptiveThinking: false,
-  interleavedThinking: false,
+};
+
+const GOOGLE_FULL: ProviderConstraints = {
+  ...NO_SUPPORT,
+  googleOptions: true,
+};
+
+const XAI_FULL: ProviderConstraints = {
+  ...NO_SUPPORT,
+  xaiOptions: true,
+};
+
+const DEEPSEEK_FULL: ProviderConstraints = {
+  ...NO_SUPPORT,
+  deepseekOptions: true,
+  compatReasoningBody: true,
+};
+
+const OPENROUTER_FULL: ProviderConstraints = {
+  ...NO_SUPPORT,
+  openrouterOptions: true,
+  anthropicOptions: true,
+  openaiOptions: true,
+  googleOptions: true,
+  xaiOptions: true,
+  deepseekOptions: true,
+  effort: true,
+  speed: true,
+  adaptiveThinking: true,
+  interleavedThinking: true,
 };
 
 const GATEWAY_FULL: ProviderConstraints = {
   anthropicOptions: true,
   openaiOptions: true,
+  googleOptions: true,
+  xaiOptions: true,
+  deepseekOptions: true,
+  openrouterOptions: false,
+  bedrockOptions: false,
   effort: true,
   speed: true,
   contextManagement: true,
   adaptiveThinking: true,
   interleavedThinking: true,
+  compatReasoningBody: false,
+};
+
+const COMPAT_ONLY: ProviderConstraints = {
+  ...NO_SUPPORT,
+  compatReasoningBody: true,
 };
 
 const PROVIDER_CONSTRAINTS: Record<string, ProviderConstraints> = {
   anthropic: ANTHROPIC_FULL,
   proxy: GATEWAY_FULL,
   openai: OPENAI_FULL,
-  xai: OPENAI_FULL,
+  xai: XAI_FULL,
+  google: GOOGLE_FULL,
+  deepseek: DEEPSEEK_FULL,
+  openrouter: OPENROUTER_FULL,
+  groq: COMPAT_ONLY,
+  fireworks: COMPAT_ONLY,
+  minimax: COMPAT_ONLY,
+  copilot: COMPAT_ONLY,
+  "github-models": COMPAT_ONLY,
+  "opencode-zen": { ...GATEWAY_FULL, compatReasoningBody: true },
+  "opencode-go": COMPAT_ONLY,
+  lmstudio: COMPAT_ONLY,
+  ollama: COMPAT_ONLY,
   vercel_gateway: GATEWAY_FULL,
   llmgateway: GATEWAY_FULL,
-  opencode_zen: GATEWAY_FULL,
-  opencode_go: GATEWAY_FULL,
-  openrouter: GATEWAY_FULL,
-  bedrock: GATEWAY_FULL,
-};
-
-const NO_SUPPORT: ProviderConstraints = {
-  anthropicOptions: false,
-  openaiOptions: false,
-  effort: false,
-  speed: false,
-  contextManagement: false,
-  adaptiveThinking: false,
-  interleavedThinking: false,
+  bedrock: {
+    ...NO_SUPPORT,
+    bedrockOptions: true,
+    effort: true,
+    speed: false,
+    contextManagement: false,
+    adaptiveThinking: true,
+    interleavedThinking: false,
+  },
 };
 
 function parseModelId(modelId: string): { provider: string; model: string } {
@@ -101,11 +174,15 @@ const LEGACY_PREFIXES = [
 ];
 
 function getClaudeGen(model: string): ClaudeGen {
-  if (!model.startsWith("claude")) return "non-claude";
+  // Normalise Bedrock-prefixed IDs ("anthropic.claude-...", "us.anthropic.claude-...").
+  let m = model;
+  if (m.startsWith("us.")) m = m.slice(3);
+  if (m.startsWith("anthropic.")) m = m.slice("anthropic.".length);
+  if (!m.startsWith("claude")) return "non-claude";
   for (const p of LEGACY_PREFIXES) {
-    if (model.startsWith(p)) return "legacy";
+    if (m.startsWith(p)) return "legacy";
   }
-  if (model.startsWith("claude-3.5") || model.startsWith("claude-3-5")) return "3.5";
+  if (m.startsWith("claude-3.5") || m.startsWith("claude-3-5")) return "3.5";
   return "4+";
 }
 
@@ -114,19 +191,21 @@ function getClaudeGen(model: string): ClaudeGen {
 // For gateways (llmgateway/, openrouter/, vercel_gateway/), we inspect the model name
 // to determine the underlying provider family.
 
-export type ModelFamily = "claude" | "openai" | "google" | "other";
+export type ModelFamily = "claude" | "openai" | "google" | "xai" | "deepseek" | "other";
 
 export function detectModelFamily(modelId: string): ModelFamily {
   const { provider } = parseModelId(modelId);
 
   // Direct providers — no guessing needed
   if (provider === "anthropic") return "claude";
-  if (provider === "openai" || provider === "xai") return "openai";
+  if (provider === "openai") return "openai";
+  if (provider === "xai") return "xai";
   if (provider === "google") return "google";
+  if (provider === "deepseek") return "deepseek";
 
-  // Proxy is multi-provider — inspect model name like gateways
+  // Proxy / gateways — inspect model name
   const base = extractBaseModel(modelId);
-  if (base.startsWith("claude")) return "claude";
+  if (base.startsWith("claude") || base.startsWith("anthropic.claude")) return "claude";
   if (
     base.startsWith("gpt-") ||
     base.startsWith("o1") ||
@@ -135,12 +214,16 @@ export function detectModelFamily(modelId: string): ModelFamily {
   )
     return "openai";
   if (base.startsWith("gemini")) return "google";
+  if (base.startsWith("grok")) return "xai";
+  if (base.startsWith("deepseek")) return "deepseek";
 
-  // OpenRouter nested paths like "anthropic/claude-*" or "openai/gpt-*"
+  // OpenRouter nested paths like "anthropic/claude-*", "x-ai/grok-*", "deepseek/deepseek-*"
   const model = parseModelId(modelId).model;
   if (model.startsWith("anthropic/")) return "claude";
   if (model.startsWith("openai/")) return "openai";
   if (model.startsWith("google/")) return "google";
+  if (model.startsWith("x-ai/") || model.startsWith("xai/")) return "xai";
+  if (model.startsWith("deepseek/")) return "deepseek";
 
   return "other";
 }
@@ -149,86 +232,105 @@ function getModelCapabilities(modelId: string): ModelCapabilities {
   const base = extractBaseModel(modelId);
   const family = detectModelFamily(modelId);
 
+  const BASE: ModelCapabilities = {
+    provider: "other",
+    thinking: false,
+    adaptiveThinking: false,
+    effort: false,
+    speed: false,
+    contextManagement: false,
+    interleavedThinking: false,
+    openaiReasoning: false,
+    openaiServiceTier: false,
+    googleThinking: false,
+    googleThinkingLevel: false,
+    xaiReasoning: false,
+    deepseekThinking: false,
+    openrouterReasoning: false,
+    compatReasoning: false,
+  };
+
   if (family === "openai") {
-    // Reasoning models: o1, o3, o4, gpt-5+
     const isReasoning =
       base.startsWith("o1") ||
       base.startsWith("o3") ||
       base.startsWith("o4") ||
       base.startsWith("gpt-5");
     return {
+      ...BASE,
       provider: "openai",
-      thinking: false,
-      adaptiveThinking: false,
-      effort: false,
-      speed: false,
-      contextManagement: false,
-      interleavedThinking: false,
       openaiReasoning: isReasoning,
       openaiServiceTier: true,
     };
   }
 
   if (family === "google") {
+    // Gemini 2.5 = thinkingBudget; Gemini 3+ = thinkingLevel
+    const isGemini3 = /gemini-3(\.|-|$)/.test(base);
+    const isGemini25 = /gemini-2\.5/.test(base);
+    const supportsThinking = isGemini3 || isGemini25;
     return {
+      ...BASE,
       provider: "google",
-      thinking: false,
-      adaptiveThinking: false,
-      effort: false,
-      speed: false,
-      contextManagement: false,
-      interleavedThinking: false,
-      openaiReasoning: false,
-      openaiServiceTier: false,
+      googleThinking: supportsThinking,
+      googleThinkingLevel: isGemini3,
+    };
+  }
+
+  if (family === "xai") {
+    // Reasoning SKUs: grok-3-mini, grok-4*, grok-4.1*, grok-4.20*, *-reasoning
+    const isReasoning =
+      base.startsWith("grok-3-mini") || base.startsWith("grok-4") || base.includes("reasoning");
+    return {
+      ...BASE,
+      provider: "xai",
+      xaiReasoning: isReasoning,
+    };
+  }
+
+  if (family === "deepseek") {
+    // deepseek-reasoner auto-thinks; deepseek-chat needs explicit thinking flag
+    const isChat = base === "deepseek-chat" || base.startsWith("deepseek-v3");
+    return {
+      ...BASE,
+      provider: "deepseek",
+      deepseekThinking: isChat,
+      compatReasoning: true,
     };
   }
 
   if (family !== "claude") {
+    // Generic OpenAI-compatible reasoning SKUs (qwen3, glm-4.5+, kimi-thinking, gpt-oss, etc.)
+    const isCompatReasoning =
+      /qwen3/.test(base) ||
+      /glm-(4\.[5-9]|[5-9])/.test(base) ||
+      /kimi-(k2|thinking)/.test(base) ||
+      /gpt-oss/.test(base) ||
+      /deepseek-r1/.test(base) ||
+      /minimax-m[2-9]/.test(base);
     return {
-      provider: "other",
-      thinking: false,
-      adaptiveThinking: false,
-      effort: false,
-      speed: false,
-      contextManagement: false,
-      interleavedThinking: false,
-      openaiReasoning: false,
-      openaiServiceTier: false,
+      ...BASE,
+      compatReasoning: isCompatReasoning,
     };
   }
 
-  // Claude models — generation-based capabilities
+  // Claude — generation-based capabilities
   const gen = getClaudeGen(base);
 
   if (gen === "legacy") {
-    return {
-      provider: "anthropic",
-      thinking: false,
-      adaptiveThinking: false,
-      effort: false,
-      speed: false,
-      contextManagement: false,
-      interleavedThinking: false,
-      openaiReasoning: false,
-      openaiServiceTier: false,
-    };
+    return { ...BASE, provider: "anthropic" };
   }
 
   if (gen === "3.5") {
     return {
+      ...BASE,
       provider: "anthropic",
       thinking: true,
-      adaptiveThinking: false,
-      effort: false,
-      speed: false,
-      contextManagement: false,
-      interleavedThinking: false,
-      openaiReasoning: false,
-      openaiServiceTier: false,
     };
   }
 
   return {
+    ...BASE,
     provider: "anthropic",
     thinking: true,
     adaptiveThinking: true,
@@ -236,8 +338,6 @@ function getModelCapabilities(modelId: string): ModelCapabilities {
     speed: base.includes("opus"),
     contextManagement: !base.includes("haiku"),
     interleavedThinking: true,
-    openaiReasoning: false,
-    openaiServiceTier: false,
   };
 }
 
@@ -256,6 +356,12 @@ function getProviderConstraints(providerId: string): ProviderConstraints {
 interface EffectiveCaps extends ModelCapabilities {
   anthropicOptions: boolean;
   openaiOptions: boolean;
+  googleOptions: boolean;
+  xaiOptions: boolean;
+  deepseekOptions: boolean;
+  openrouterOptions: boolean;
+  bedrockOptions: boolean;
+  compatReasoningBody: boolean;
 }
 
 function getEffectiveCaps(modelId: string): EffectiveCaps {
@@ -268,6 +374,13 @@ function getEffectiveCaps(modelId: string): EffectiveCaps {
     ...model,
     anthropicOptions: pc.anthropicOptions && family === "claude",
     openaiOptions: pc.openaiOptions && family === "openai",
+    googleOptions: pc.googleOptions && family === "google" && model.googleThinking,
+    xaiOptions: pc.xaiOptions && family === "xai" && model.xaiReasoning,
+    deepseekOptions: pc.deepseekOptions && family === "deepseek" && model.deepseekThinking,
+    openrouterOptions: pc.openrouterOptions,
+    bedrockOptions: pc.bedrockOptions && family === "claude",
+    compatReasoningBody:
+      pc.compatReasoningBody && (model.compatReasoning || model.deepseekThinking),
     adaptiveThinking: model.adaptiveThinking && pc.adaptiveThinking,
     effort: model.effort && pc.effort,
     speed: model.speed && pc.speed,
@@ -412,10 +525,6 @@ export function getAnthropicToolVersions(modelId: string): {
   }
 
   return { computerUse, textEditor, programmaticToolCalling };
-}
-
-function supportsAnthropicOptions(modelId: string): boolean {
-  return getEffectiveCaps(modelId).anthropicOptions;
 }
 
 function buildContextEdits(
@@ -583,6 +692,14 @@ function buildOpenAIOptions(
     if (effort && effort !== "off") {
       opts.reasoningEffort = effort;
     }
+    const summary = config.performance?.openaiReasoningSummary;
+    if (summary && summary !== "off") {
+      opts.reasoningSummary = summary;
+    }
+    const verbosity = config.performance?.openaiVerbosity;
+    if (verbosity && verbosity !== "off") {
+      opts.verbosity = verbosity;
+    }
   }
 
   if (caps.openaiServiceTier) {
@@ -625,6 +742,50 @@ export async function buildProviderOptions(
     }
   }
 
+  if (caps.googleOptions) {
+    const result = buildGoogleOptions(modelId, caps, config);
+    if (Object.keys(result.opts).length > 0) {
+      providerOptions.google = result.opts;
+    }
+  }
+
+  if (caps.xaiOptions) {
+    const result = buildXaiOptions(caps, config);
+    if (Object.keys(result.opts).length > 0) {
+      providerOptions.xai = result.opts;
+    }
+  }
+
+  if (caps.deepseekOptions) {
+    const result = buildDeepseekOptions(caps, config);
+    if (Object.keys(result.opts).length > 0) {
+      providerOptions.deepseek = result.opts;
+    }
+  }
+
+  if (caps.openrouterOptions) {
+    const result = buildOpenRouterOptions(caps, config);
+    if (Object.keys(result.opts).length > 0) {
+      providerOptions.openrouter = result.opts;
+    }
+  }
+
+  if (caps.bedrockOptions) {
+    const result = buildBedrockOptions(modelId, caps, config);
+    if (Object.keys(result.opts).length > 0) {
+      providerOptions.bedrock = result.opts;
+    }
+  }
+
+  // Groq native provider — emit providerOptions.groq.reasoningFormat for SDK-level control.
+  // Body-injected reasoning_effort is handled separately via getCompatReasoningBody.
+  if (parseModelId(modelId).provider === "groq") {
+    const result = buildGroqOptions(config);
+    if (Object.keys(result.opts).length > 0) {
+      providerOptions.groq = result.opts;
+    }
+  }
+
   // Custom provider reasoning params — injected for any custom provider
   // that declares a reasoning config. The actual body injection is handled
   // by the custom provider's fetch wrapper, but we also surface the params
@@ -659,20 +820,49 @@ export async function buildProviderOptions(
 }
 
 export function degradeProviderOptions(modelId: string, level: number): ProviderOptionsResult {
-  if (level >= 2 || !supportsAnthropicOptions(modelId)) {
+  if (level >= 2) {
     return { providerOptions: {}, headers: undefined, contextWindow: 0 };
   }
 
-  const caps = getModelCapabilities(modelId);
-  // biome-ignore lint/suspicious/noExplicitAny: ProviderOptions inner shape is parsed by Zod at runtime
-  const opts: Record<string, any> = {};
+  const caps = getEffectiveCaps(modelId);
+  const providerOptions: Record<string, unknown> = {};
 
-  if (caps.thinking) {
-    opts.thinking = { type: "enabled", budgetTokens: 5_000 };
+  if (caps.anthropicOptions && caps.thinking) {
+    // biome-ignore lint/suspicious/noExplicitAny: ProviderOptions inner shape is parsed by Zod at runtime
+    const opts: Record<string, any> = { thinking: { type: "enabled", budgetTokens: 5_000 } };
+    providerOptions.anthropic = opts;
+  }
+
+  if (caps.openaiOptions && caps.openaiReasoning) {
+    providerOptions.openai = { reasoningEffort: "low" };
+  }
+
+  if (caps.googleOptions && caps.googleThinking) {
+    providerOptions.google = caps.googleThinkingLevel
+      ? { thinkingConfig: { thinkingLevel: "low" } }
+      : { thinkingConfig: { thinkingBudget: 1024 } };
+  }
+
+  if (caps.xaiOptions && caps.xaiReasoning) {
+    providerOptions.xai = { reasoningEffort: "low" };
+  }
+
+  if (caps.deepseekOptions && caps.deepseekThinking) {
+    providerOptions.deepseek = { thinking: { type: "enabled" } };
+  }
+
+  if (caps.openrouterOptions) {
+    providerOptions.openrouter = { reasoning: { effort: "low" } };
+  }
+
+  if (caps.bedrockOptions && caps.thinking) {
+    providerOptions.bedrock = {
+      reasoningConfig: { type: "enabled", budgetTokens: 5_000 },
+    };
   }
 
   return {
-    providerOptions: { anthropic: opts } as ProviderOptions,
+    providerOptions: providerOptions as ProviderOptions,
     headers: undefined,
     contextWindow: 0,
   };
@@ -694,4 +884,202 @@ export function isProviderOptionsError(error: unknown): boolean {
     lower.includes("unknown parameter") ||
     lower.includes("temperature is deprecated")
   );
+}
+function buildGoogleOptions(
+  modelId: string,
+  caps: EffectiveCaps,
+  config: AppConfig,
+): { opts: Record<string, unknown> } {
+  // biome-ignore lint/suspicious/noExplicitAny: ProviderOptions inner shape is parsed by Zod at runtime
+  const opts: Record<string, any> = {};
+  if (!caps.googleThinking) return { opts };
+
+  const thinkingConfig: Record<string, unknown> = {};
+
+  if (caps.googleThinkingLevel) {
+    // Gemini 3+ uses thinkingLevel
+    const level = config.performance?.googleThinkingLevel;
+    if (level && level !== "off") {
+      thinkingConfig.thinkingLevel = level;
+    } else if (config.performance?.effort && config.performance.effort !== "off") {
+      // Fall back to the unified effort knob — map max/xhigh → high
+      const e = config.performance.effort;
+      const mapped =
+        e === "max" || e === "xhigh"
+          ? "high"
+          : e === "high" || e === "medium" || e === "low"
+            ? e
+            : null;
+      if (mapped) thinkingConfig.thinkingLevel = mapped;
+    }
+  } else {
+    // Gemini 2.5 uses thinkingBudget
+    const budget = config.performance?.googleThinkingBudget;
+    if (typeof budget === "number") {
+      thinkingConfig.thinkingBudget = budget;
+    } else if (
+      budget !== "off" &&
+      config.performance?.effort &&
+      config.performance.effort !== "off"
+    ) {
+      // Map effort → budget heuristic
+      const map: Record<string, number> = {
+        low: 1024,
+        medium: 4096,
+        high: 8192,
+        xhigh: 16384,
+        max: 24576,
+      };
+      const v = map[config.performance.effort];
+      if (v !== undefined) thinkingConfig.thinkingBudget = v;
+    }
+  }
+
+  if (config.performance?.googleIncludeThoughts) {
+    thinkingConfig.includeThoughts = true;
+  }
+
+  if (Object.keys(thinkingConfig).length > 0) {
+    opts.thinkingConfig = thinkingConfig;
+  }
+
+  // Suppress unused param lint — modelId kept for future per-model gating
+  void modelId;
+  return { opts };
+}
+
+function buildXaiOptions(
+  caps: EffectiveCaps,
+  config: AppConfig,
+): { opts: Record<string, unknown> } {
+  // biome-ignore lint/suspicious/noExplicitAny: ProviderOptions inner shape is parsed by Zod at runtime
+  const opts: Record<string, any> = {};
+  if (!caps.xaiReasoning) return { opts };
+
+  const explicit = config.performance?.xaiReasoningEffort;
+  // xAI chat API only accepts low|high. Clamp medium → high (caller picks low explicitly if cheap).
+  // Responses API accepts low|medium|high but @ai-sdk/xai default is chat.
+  if (explicit && explicit !== "off") {
+    opts.reasoningEffort = explicit === "medium" ? "high" : explicit;
+    return { opts };
+  }
+
+  // Fall back to unified effort
+  const e = config.performance?.effort;
+  if (e && e !== "off") {
+    opts.reasoningEffort = e === "low" ? "low" : "high";
+  }
+  return { opts };
+}
+
+function buildDeepseekOptions(
+  caps: EffectiveCaps,
+  config: AppConfig,
+): { opts: Record<string, unknown> } {
+  // biome-ignore lint/suspicious/noExplicitAny: ProviderOptions inner shape is parsed by Zod at runtime
+  const opts: Record<string, any> = {};
+  if (!caps.deepseekThinking) return { opts };
+
+  const explicit = config.performance?.deepseekThinking;
+  if (explicit === "enabled") {
+    opts.thinking = { type: "enabled" };
+    return { opts };
+  }
+  if (explicit === "off") return { opts };
+
+  // Fall back to unified effort — any non-off effort enables thinking on deepseek-chat
+  if (config.performance?.effort && config.performance.effort !== "off") {
+    opts.thinking = { type: "enabled" };
+  }
+  return { opts };
+}
+
+function buildOpenRouterOptions(
+  caps: EffectiveCaps,
+  config: AppConfig,
+): { opts: Record<string, unknown> } {
+  // biome-ignore lint/suspicious/noExplicitAny: ProviderOptions inner shape is parsed by Zod at runtime
+  const opts: Record<string, any> = {};
+  if (!caps.openrouterOptions) return { opts };
+
+  const reasoning: Record<string, unknown> = {};
+
+  const explicitEffort = config.performance?.openrouterReasoningEffort;
+  const explicitMax = config.performance?.openrouterReasoningMaxTokens;
+
+  if (explicitMax !== undefined && explicitMax !== "off") {
+    reasoning.max_tokens = explicitMax;
+  } else if (explicitEffort && explicitEffort !== "off") {
+    reasoning.effort = explicitEffort;
+  } else if (
+    config.thinking?.mode === "enabled" &&
+    typeof config.thinking?.budgetTokens === "number"
+  ) {
+    // #4 fallback — inherit Claude thinking budget when no OpenRouter-specific
+    // value is set. OpenRouter routes anthropic models with reasoning.max_tokens.
+    reasoning.max_tokens = config.thinking.budgetTokens;
+  } else {
+    // Fall back to unified effort
+    const e = config.performance?.effort;
+    if (e && e !== "off") {
+      const mapped: Record<string, string> = {
+        low: "low",
+        medium: "medium",
+        high: "high",
+        xhigh: "xhigh",
+        max: "xhigh",
+      };
+      const v = mapped[e];
+      if (v) reasoning.effort = v;
+    }
+  }
+
+  if (config.performance?.openrouterExcludeReasoning) {
+    reasoning.exclude = true;
+  }
+
+  if (Object.keys(reasoning).length > 0) {
+    opts.reasoning = reasoning;
+  }
+  return { opts };
+}
+function buildBedrockOptions(
+  modelId: string,
+  caps: EffectiveCaps,
+  config: AppConfig,
+): { opts: Record<string, unknown> } {
+  // biome-ignore lint/suspicious/noExplicitAny: ProviderOptions inner shape is parsed by Zod at runtime
+  const opts: Record<string, any> = {};
+  if (!caps.bedrockOptions) return { opts };
+
+  const reasoningConfig: Record<string, unknown> = {};
+
+  const mode = config.thinking?.mode ?? "off";
+  if (mode === "auto" || mode === "adaptive") {
+    reasoningConfig.type = "adaptive";
+  } else if (mode === "enabled") {
+    reasoningConfig.type = "enabled";
+    if (config.thinking?.budgetTokens) {
+      reasoningConfig.budgetTokens = config.thinking.budgetTokens;
+    }
+  }
+
+  if (caps.effort && config.performance?.effort && config.performance.effort !== "off") {
+    const clamped = clampEffort(modelId, config.performance.effort);
+    if (clamped) reasoningConfig.maxReasoningEffort = clamped;
+  }
+
+  if (Object.keys(reasoningConfig).length > 0) {
+    opts.reasoningConfig = reasoningConfig;
+  }
+  return { opts };
+}
+function buildGroqOptions(config: AppConfig): { opts: Record<string, unknown> } {
+  // biome-ignore lint/suspicious/noExplicitAny: ProviderOptions inner shape is parsed by Zod at runtime
+  const opts: Record<string, any> = {};
+  const fmt = config.performance?.groqReasoningFormat;
+  if (fmt && fmt !== "off") {
+    opts.reasoningFormat = fmt;
+  }
+  return { opts };
 }

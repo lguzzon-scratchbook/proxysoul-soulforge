@@ -1,8 +1,11 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
+import { loadConfig } from "../../../config/index.js";
 import { getActiveProxyApiKey } from "../../proxy/key-resolver.js";
 import { ensureProxy, stopProxy } from "../../proxy/lifecycle.js";
+import { getCompatReasoningBody } from "../compat-reasoning.js";
 import { SHARED_CONTEXT_WINDOWS } from "./context-windows.js";
+import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 const baseURL = process.env.PROXY_API_URL || "http://127.0.0.1:8317/v1";
@@ -31,7 +34,15 @@ export const proxy: ProviderDefinition = {
     if (isAnthropicModel(modelId)) {
       return createAnthropic({ baseURL, apiKey })(modelId);
     }
-    return createOpenAI({ baseURL, apiKey }).chat(modelId);
+    // Non-Claude routed through OpenAI SDK — inject reasoning body params for
+    // upstream providers (xAI, Gemini, GLM, etc.) that accept reasoning_effort.
+    const reasoningBody = getCompatReasoningBody(`proxy/${modelId}`, loadConfig());
+    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
+    return createOpenAI({
+      baseURL,
+      apiKey,
+      ...(reasoningFetch ? { fetch: reasoningFetch as typeof fetch } : {}),
+    }).chat(modelId);
   },
 
   async fetchModels(): Promise<ProviderModelInfo[] | null> {

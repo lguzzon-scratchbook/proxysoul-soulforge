@@ -1,4 +1,7 @@
 import { createOpenAI } from "@ai-sdk/openai";
+import { loadConfig } from "../../../config/index.js";
+import { getCompatReasoningBody } from "../compat-reasoning.js";
+import { createReasoningFetchWrapper } from "./reasoning-fetch.js";
 import type { ProviderDefinition, ProviderModelInfo } from "./types.js";
 
 /** Base origin — override with LM_STUDIO_URL (e.g. "http://192.168.1.5:1234"). */
@@ -44,9 +47,12 @@ export const lmstudio: ProviderDefinition = {
   description: "Local models via LM Studio — no key needed",
 
   createModel(modelId: string) {
+    const reasoningBody = getCompatReasoningBody(`lmstudio/${modelId}`, loadConfig());
+    const reasoningFetch = createReasoningFetchWrapper(reasoningBody);
     const client = createOpenAI({
       baseURL: openaiBase(),
       apiKey: getApiToken(),
+      ...(reasoningFetch ? { fetch: reasoningFetch as typeof fetch } : {}),
     });
     return client.chat(modelId);
   },

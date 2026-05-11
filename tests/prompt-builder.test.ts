@@ -19,8 +19,8 @@ describe("family prompt selection", () => {
   });
 
   test("getFamilyPrompt returns default for unknown family", () => {
-    expect(getFamilyPrompt("deepseek")).toBe(DEFAULT_PROMPT);
     expect(getFamilyPrompt("llama")).toBe(DEFAULT_PROMPT);
+    expect(getFamilyPrompt("nonexistent")).toBe(DEFAULT_PROMPT);
   });
 
   test("getPromptForModel routes by model ID", () => {
