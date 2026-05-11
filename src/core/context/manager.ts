@@ -13,7 +13,7 @@ import { resolveModel } from "../llm/provider.js";
 import { EPHEMERAL_CACHE, supportsTemperature } from "../llm/provider-options.js";
 import { MemoryManager } from "../memory/manager.js";
 import { MemoryRecall } from "../memory/recall.js";
-import { MEMORY_RECALL_ACK } from "../memory/types.js";
+import { describeRecallSignals, MEMORY_RECALL_ACK } from "../memory/types.js";
 import {
   buildDirectoryTree,
   buildSystemPrompt as buildPrompt,
@@ -235,11 +235,13 @@ export class ContextManager {
 
     const lines: string[] = ["<recalled_memories>"];
     const surfacedIds: Array<{ scope: "global" | "project"; id: string }> = [];
-    for (const { record, scope } of fresh) {
+    for (const { record, scope, signals } of fresh) {
       surfacedIds.push({ scope, id: record.id });
       this.surfacedMemoryIds.add(record.id);
       const cat = record.category ?? "—";
-      lines.push(`[${cat}] ${record.id.slice(0, 8)} — ${record.summary}`);
+      const why = describeRecallSignals(signals);
+      const whySuffix = why ? `  · via ${why}` : "";
+      lines.push(`[${cat}] ${record.id.slice(0, 8)} — ${record.summary}${whySuffix}`);
       if (record.details) lines.push(`  ${record.details}`);
     }
     lines.push("</recalled_memories>");
