@@ -2,6 +2,24 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.15.2] — 2026-05-11
+
+### Bug Fixes
+
+- **lock-in**: live dispatch updates
+- **router**: make concurrency picker navigable
+### Documentation
+
+- **memory**: add user-facing memory page
+- **prompts**: strengthen memory write/search habits
+### Features
+
+- **hearth**: expose provider settings as remote slash commands
+- **provider-settings**: clarify tabs with info banners
+- **reasoning**: wire thinking knobs for all providers
+### Refactor
+
+- **provider-settings**: group rows into sections, compact to one line
 ## [2.15.1] — 2026-05-11
 
 ### Bug Fixes
