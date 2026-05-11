@@ -28,11 +28,11 @@ interface SettingSection {
   type: "section";
   label: string;
 }
-type SettingItem = SettingRow | SettingSection;
-function isSection(item: SettingItem): item is SettingSection {
-  return item.type === "section";
+interface SettingInfo {
+  type: "info";
+  text: string;
 }
-
+type SettingItem = SettingRow | SettingSection | SettingInfo;
 type ProviderTab =
   | "claude"
   | "openai"
@@ -194,6 +194,10 @@ const GENERAL_ITEMS: SettingItem[] = [
 ];
 
 const GOOGLE_ITEMS: SettingItem[] = [
+  {
+    type: "info",
+    text: "Gemini 3 / 3.1 use thinkingLevel · Gemini 2.5 uses thinkingBudget. Only one applies per model.",
+  },
   { type: "section", label: "Gemini 3+" },
   {
     key: "googleThinkingLevel",
@@ -220,40 +224,52 @@ const GOOGLE_ITEMS: SettingItem[] = [
 ];
 
 const XAI_ITEMS: SettingItem[] = [
+  {
+    type: "info",
+    text: "Applies to: grok-3-mini · grok-4 · grok-4.1 · grok-4.20 · *-reasoning. Chat API clamps to low|high — medium auto-maps to high.",
+  },
   { type: "section", label: "Reasoning" },
   {
     key: "xaiReasoningEffort",
     label: "Effort",
-    desc: "grok-3-mini / grok-4* — chat: low/high · responses: low/medium/high",
+    desc: "Chat: low/high · Responses API: low/medium/high",
     type: "cycle",
     options: ["off", "low", "medium", "high"],
   },
 ];
 
 const DEEPSEEK_ITEMS: SettingItem[] = [
+  {
+    type: "info",
+    text: "Applies to deepseek-chat only. deepseek-reasoner always thinks (no toggle).",
+  },
   { type: "section", label: "Reasoning" },
   {
     key: "deepseekThinking",
     label: "Thinking",
-    desc: "deepseek-chat only — reasoner auto-thinks. Enables CoT generation.",
+    desc: "Enable chain-of-thought generation on deepseek-chat",
     type: "cycle",
     options: ["off", "enabled"],
   },
 ];
 
 const OPENROUTER_ITEMS: SettingItem[] = [
+  {
+    type: "info",
+    text: "Unified shape — OpenRouter maps to each upstream's native API (Anthropic budget, OpenAI effort, Gemini level). Inherits Claude budget by default.",
+  },
   { type: "section", label: "Unified reasoning" },
   {
     key: "openrouterReasoningEffort",
     label: "Effort",
-    desc: "Maps to upstream provider's native shape (Anthropic budget · OpenAI effort · Gemini level)",
+    desc: "Mapped to upstream's native shape (Anthropic budget · OpenAI effort · Gemini level)",
     type: "cycle",
     options: ["off", "minimal", "low", "medium", "high", "xhigh", "none"],
   },
   {
     key: "openrouterReasoningMaxTokens",
     label: "Max tokens",
-    desc: "Anthropic-style token budget. Takes priority over Effort when set.",
+    desc: "Anthropic-style budget. Takes priority over Effort when set.",
     type: "cycle",
     options: ["off", "1024", "2048", "4096", "8192", "16384"],
   },
@@ -261,25 +277,33 @@ const OPENROUTER_ITEMS: SettingItem[] = [
   {
     key: "openrouterExcludeReasoning",
     label: "Hide reasoning",
-    desc: "Model still reasons but tokens are not returned in the response",
+    desc: "Model still reasons but tokens are not returned",
     type: "toggle",
   },
 ];
 
 const COMPAT_ITEMS: SettingItem[] = [
-  { type: "section", label: "OpenAI-compatible body injection" },
+  {
+    type: "info",
+    text: "Applies to: Groq · Fireworks · OpenCode Zen · OpenCode Go · LM Studio · Ollama · Copilot · GitHub Models · MiniMax · Proxy (non-Claude lane)",
+  },
+  { type: "section", label: "Shared effort" },
   {
     key: "compatReasoningEffort",
     label: "Effort",
-    desc: "Used by Groq, Fireworks, LM Studio, Ollama, opencode-go / -zen, Copilot, GitHub Models, MiniMax",
+    desc: "Single knob — propagates as reasoning_effort in the request body for every provider listed above.",
     type: "cycle",
     options: ["off", "low", "medium", "high", "xhigh"],
   },
   { type: "section", label: "Groq" },
   {
+    type: "info",
+    text: "Groq-specific overrides. qwen3 / gpt-oss / deepseek-r1 reasoning SKUs.",
+  },
+  {
     key: "groqReasoningEffort",
     label: "Groq override",
-    desc: "Override for Groq when both are set. qwen3 / gpt-oss / deepseek-r1 SKUs.",
+    desc: "Takes priority over shared effort when set. qwen3 auto-maps to default.",
     type: "cycle",
     options: ["off", "low", "medium", "high"],
   },
@@ -547,7 +571,7 @@ export function ProviderSettings({
   const items = TAB_ITEMS[tab];
   const tabIdx = TABS.indexOf(tab);
 
-  const firstRowIdx = items.findIndex((i) => !isSection(i));
+  const firstRowIdx = items.findIndex((i) => i.type !== "section" && i.type !== "info");
 
   useEffect(() => {
     if (visible) setScope(detectInitialScope(projectConfig));
@@ -573,7 +597,7 @@ export function ProviderSettings({
     for (let i = 0; i < items.length; i++) {
       next = (next + dir + items.length) % items.length;
       const it = items[next];
-      if (it && !isSection(it)) {
+      if (it && it.type !== "section" && it.type !== "info") {
         setCursor(next);
         return;
       }
@@ -626,7 +650,7 @@ export function ProviderSettings({
     }
     if (evt.name === "return" || evt.name === " ") {
       const item = items[cursor];
-      if (item && !isSection(item)) cycleValue(item);
+      if (item && item.type !== "section" && item.type !== "info") cycleValue(item);
       return;
     }
     if (evt.name === "left" || evt.name === "right") {
@@ -660,7 +684,10 @@ export function ProviderSettings({
   const labelW = 22;
 
   const focusedItem = items[cursor];
-  const focusedRow = focusedItem && !isSection(focusedItem) ? focusedItem : null;
+  const focusedRow =
+    focusedItem && focusedItem.type !== "section" && focusedItem.type !== "info"
+      ? focusedItem
+      : null;
   const focusedDisabled = focusedRow ? isItemDisabled(focusedRow.key) : false;
 
   return (
@@ -677,7 +704,12 @@ export function ProviderSettings({
         { id: "xai", label: "Grok", icon: "ai", blurb: "reasoning effort" },
         { id: "deepseek", label: "DeepSeek", icon: "ai", blurb: "thinking toggle" },
         { id: "openrouter", label: "OpenRouter", icon: "cloud", blurb: "unified reasoning" },
-        { id: "compat", label: "Compat", icon: "cloud", blurb: "OpenAI-compatible body inject" },
+        {
+          id: "compat",
+          label: "Other",
+          icon: "cloud",
+          blurb: "Groq · OpenCode · Fireworks · LM Studio · Ollama …",
+        },
         { id: "general", label: "General", icon: "cloud", blurb: "shared options" },
       ]}
       activeTab={tab}
@@ -707,9 +739,15 @@ export function ProviderSettings({
             width={contentW}
             maxRows={maxVisible}
             rowHeight={1}
-            keyExtractor={(item, idx) => (isSection(item) ? `sec-${idx}-${item.label}` : item.key)}
+            keyExtractor={(item, idx) =>
+              item.type === "section"
+                ? `sec-${idx}-${item.label}`
+                : item.type === "info"
+                  ? `info-${idx}`
+                  : item.key
+            }
             renderItem={(item, { selected }) => {
-              if (isSection(item)) {
+              if (item.type === "section") {
                 return (
                   <box flexDirection="row" backgroundColor={t.bgPopup} paddingX={1}>
                     <text bg={t.bgPopup} fg={t.textMuted} attributes={1}>
@@ -718,6 +756,15 @@ export function ProviderSettings({
                     <text bg={t.bgPopup} fg={t.textFaint}>
                       {"  "}
                       {"─".repeat(Math.max(0, contentW - item.label.length - 6))}
+                    </text>
+                  </box>
+                );
+              }
+              if (item.type === "info") {
+                return (
+                  <box flexDirection="row" backgroundColor={t.bgPopup} paddingX={1}>
+                    <text bg={t.bgPopup} fg={t.textFaint}>
+                      ℹ {item.text}
                     </text>
                   </box>
                 );
