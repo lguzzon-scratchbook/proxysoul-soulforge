@@ -2,6 +2,15 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.15.4] — 2026-05-13
+
+### Bug Fixes
+
+- **terminal**: hand TTY to child via renderer.suspend
+- **wizard**: paste + cursor in setup api key input
+### Miscellaneous
+
+- bump bun engine, make nvim optional
 ## [2.15.3] — 2026-05-11
 
 ### Features
