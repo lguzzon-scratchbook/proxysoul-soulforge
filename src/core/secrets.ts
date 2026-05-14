@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+
 // Cache for keychain probes — sync `security` exec is ~50-200ms each. Without
 // caching, opening the API key popup blocks the UI for seconds while probing
 // every provider. Invalidated by setSecret/deleteSecret.

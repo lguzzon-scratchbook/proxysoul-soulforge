@@ -154,8 +154,9 @@ export function ApiKeySettings({ visible, onClose }: Props) {
           id: `${k.id}-remove`,
           kind: "remove",
           targetKey: k.id,
-          prefix: "↳",
+          prefix: "       ↳",
           label: "remove stored key",
+          subdued: true,
         });
       }
       return out;

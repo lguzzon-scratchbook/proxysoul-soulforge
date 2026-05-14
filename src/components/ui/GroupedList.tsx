@@ -20,6 +20,8 @@ export interface GroupedItem {
   status?: "online" | "offline" | "warning" | "error" | "idle";
   /** Disable (greyed out, still navigable if you choose). */
   disabled?: boolean;
+  /** Render label in dim color when not selected — for subordinate / secondary rows. */
+  subdued?: boolean;
   /** Marks this item as the currently-active value (checkmark + brand color). */
   active?: boolean;
   /** Char indices in `label` to highlight (e.g. fuzzy-match positions). */
@@ -318,9 +320,11 @@ function GroupedListImpl<Item extends GroupedItem>({
               ? t.textPrimary
               : it.active
                 ? accent
-                : focused
-                  ? t.textSecondary
-                  : t.textMuted;
+                : it.subdued
+                  ? t.textFaint
+                  : focused
+                    ? t.textSecondary
+                    : t.textMuted;
           const hlFg = isSelected ? t.textPrimary : accent;
           const labelBold = isSelected || !!it.active;
           const spans = renderLabelSpans(it.label, it.highlightIndices, fg, hlFg, labelBold);
