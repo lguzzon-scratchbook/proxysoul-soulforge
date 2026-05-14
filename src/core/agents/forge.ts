@@ -34,6 +34,7 @@ import {
 import { renderTaskList } from "../tools/task-list.js";
 import { isApiExportEnabled } from "./step-utils.js";
 import {
+  AbnormalFinishError,
   describeAbnormalFinish,
   isAbnormalFinish,
   MAX_OUTPUT_TOKENS,
@@ -156,6 +157,16 @@ function buildForgePrepareStep(
     }
 
     const sanitized = sanitizeMessages(messages);
+
+    // Abnormal-finish detection: ToolLoopAgent calls `notify()` for `onStepFinish`
+    // which silently swallows thrown errors (ai/dist/index.mjs:519). prepareStep,
+    // by contrast, IS awaited inline and throws propagate. So we sniff the prior
+    // step's finishReason here and surface the failure as a real stream rejection.
+    // Without this, finishReason="length" silently exits the loop (vercel/ai #13075).
+    const prevStep = steps[steps.length - 1] as { finishReason?: string } | undefined;
+    if (prevStep && isAbnormalFinish(prevStep.finishReason)) {
+      throw new AbnormalFinishError(prevStep.finishReason);
+    }
 
     const result: {
       messages?: ModelMessage[];
@@ -848,6 +859,11 @@ export function createForgeAgent({
       ...(((providerOptions as Record<string, unknown>)?.anthropic as Record<string, unknown>) ??
         {}),
       cacheControl: { type: "ephemeral" },
+      // Mirror SDK-level maxOutputTokens onto the Anthropic request body so gateways/proxies
+      // that strip non-native fields still see a real cap. Without this, llmgateway and
+      // similar OpenAI-compatible proxies fall back to Anthropic's 1024-token default,
+      // truncating mid-tool-call → silent agent stop (vercel/ai #13075, opencode #18108).
+      max_tokens: MAX_OUTPUT_TOKENS,
     },
   } as ProviderOptions;
 
@@ -864,6 +880,8 @@ export function createForgeAgent({
     onStepFinish: (step) => {
       if (isAbnormalFinish(step.finishReason)) {
         logBackgroundError("agent-error", `forge: ${describeAbnormalFinish(step.finishReason)}`);
+        // NOTE: throwing here is swallowed by the SDK's notify() (ai/dist/index.mjs:519).
+        // Actual surfacing happens in prepareStep — see buildForgePrepareStep above.
       }
     },
     instructions: isProxyClaude

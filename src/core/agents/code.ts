@@ -112,6 +112,7 @@ export function createCodeAgent(model: LanguageModel, options?: CodeAgentOptions
           "agent-error",
           `${options?.agentId ?? "code"}: ${describeAbnormalFinish(step.finishReason)}`,
         );
+        // SDK swallows throws in onStepFinish; surfacing happens in prepareStep (step-utils.ts).
       }
     },
     // biome-ignore lint/suspicious/noExplicitAny: forgeTools come as Record<string, unknown> for cache sharing

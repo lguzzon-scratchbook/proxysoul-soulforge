@@ -3,6 +3,7 @@ import type { PrepareStepFunction, StopCondition } from "ai";
 import { stepCountIs } from "ai";
 import { renderTaskList } from "../tools/task-list.js";
 import type { AgentBus } from "./agent-bus.js";
+import { AbnormalFinishError, isAbnormalFinish } from "./stream-options.js";
 import { emitSubagentStep } from "./subagent-events.js";
 
 type SymbolLookup = (absPath: string) => Array<{ name: string; kind: string; isExported: boolean }>;
@@ -410,6 +411,15 @@ export function buildPrepareStep({
       system?: string;
       messages?: ModelMessage[];
     } = {};
+
+    // Abnormal-finish detection: ToolLoopAgent's `notify()` swallows errors thrown
+    // from `onStepFinish` (ai/dist/index.mjs:519). prepareStep is awaited inline so
+    // throws propagate. Sniff the prior step's finishReason and surface as a real
+    // stream rejection — fixes silent stop on finishReason=length (vercel/ai #13075).
+    const prevStep = steps[steps.length - 1] as { finishReason?: string } | undefined;
+    if (prevStep && isAbnormalFinish(prevStep.finishReason)) {
+      throw new AbnormalFinishError(prevStep.finishReason);
+    }
 
     // Sanitize non-dict tool-call inputs to prevent Anthropic API rejections
     let sanitizedMessages: ModelMessage[] | undefined;

@@ -14,6 +14,7 @@ import type { StreamSegment } from "../components/chat/StreamSegmentList.js";
 import type { LiveToolCall } from "../components/chat/ToolCallDisplay.js";
 import { normalizePath } from "../core/agents/agent-bus.js";
 import { createForgeAgent } from "../core/agents/index.js";
+import { AbnormalFinishError } from "../core/agents/stream-options.js";
 import { onAgentStats, onMultiAgentEvent, onSubagentStep } from "../core/agents/subagent-events.js";
 import type { SharedCacheRef } from "../core/agents/subagent-tools.js";
 import {
@@ -1908,6 +1909,8 @@ export function useChat({
       const { maxRetries: MAX_TRANSIENT_RETRIES, baseDelayMs: RETRY_BASE_DELAY_MS } =
         resolveRetrySettings(effectiveConfig.retry);
       let streamRetryCount = 0; // local retry counter (not a ref)
+      let lengthRetryCount = 0; // bounded auto-continue on finishReason=length
+      const MAX_LENGTH_RETRIES = 2;
       // Reset retry count on real user messages (not auto-retry "Continue.")
       if (input !== "Continue." || !stallRetryPendingRef.current) {
         stallRetryCountRef.current = 0;
@@ -3133,6 +3136,85 @@ export function useChat({
           const isAbort = abortController.signal.aborted;
           const msg = err instanceof Error ? err.message : String(err);
           const chain = causeChain(err);
+
+          // Auto-continue on length truncation: model output was cut off mid-stream
+          // (vercel/ai #13075). Commit partial work, inject a synthetic "Continue."
+          // user message, and re-enter the loop. Bounded to MAX_LENGTH_RETRIES per
+          // user turn to prevent runaway loops on genuinely stuck models.
+          const isLengthTruncation = err instanceof AbnormalFinishError && err.reason === "length";
+          if (isLengthTruncation && !abortController.signal.aborted) {
+            lengthRetryCount++;
+            if (lengthRetryCount <= MAX_LENGTH_RETRIES) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "system",
+                  content: `Output truncated (finish_reason=length). Auto-continuing ${String(lengthRetryCount)}/${String(MAX_LENGTH_RETRIES)}.`,
+                  timestamp: Date.now(),
+                },
+              ]);
+              // Commit partial assistant output so the model can resume from where it stopped.
+              if (fullText.trim().length > 0 || completedCalls.length > 0) {
+                const partialMsg = buildAssistantMessage({
+                  fullText,
+                  completedCalls,
+                  segments: finalSegments,
+                  responseStartedAt,
+                  now: Date.now(),
+                });
+                if (partialMsg) {
+                  setMessages((prev) => [...prev, partialMsg]);
+                  const assistantContent: Array<TextPart | ToolCallPart> = [];
+                  if (fullText.length > 0) {
+                    assistantContent.push({ type: "text", text: fullText });
+                  }
+                  for (const call of completedCalls) {
+                    const args = call.args;
+                    assistantContent.push({
+                      type: "tool-call",
+                      toolCallId: call.id,
+                      toolName: call.name,
+                      input:
+                        typeof args === "object" && args !== null && !Array.isArray(args)
+                          ? args
+                          : {},
+                    });
+                  }
+                  if (completedCalls.length > 0) {
+                    const toolContent = completedCalls.map((call) => ({
+                      type: "tool-result" as const,
+                      toolCallId: call.id,
+                      toolName: call.name,
+                      output: { type: "text" as const, value: call.result?.output ?? "" },
+                    }));
+                    setCoreMessages((prev) => [
+                      ...prev,
+                      { role: "assistant" as const, content: assistantContent },
+                      { role: "tool" as const, content: toolContent },
+                    ]);
+                  } else if (fullText.length > 0) {
+                    setCoreMessages((prev) => [
+                      ...prev,
+                      { role: "assistant" as const, content: fullText },
+                    ]);
+                  }
+                }
+              }
+              streamSegmentsBuffer.current = [];
+              liveToolCallsBuffer.current = [];
+              lastFlushedSegments.current = [];
+              lastFlushedToolCalls.current = [];
+              lastFlushedStreamingChars.current = 0;
+              streamingCharsRef.current = 0;
+              toolCharsRef.current = 0;
+              setStreamingChars(0);
+              setStreamSegments([]);
+              setLiveToolCalls([]);
+              stallRetryPendingRef.current = true;
+              continue;
+            }
+          }
           const isTransient =
             /overloaded|529|429|rate.?limit|too many requests|503|502|timeout|timed out|fetch failed|network|econnreset|econnrefused|enotfound|eai_again|socket hang up|connection (?:error|reset|refused|closed)|stream (?:error|closed)|premature close|terminated|aborted.*connection/i.test(
               chain,

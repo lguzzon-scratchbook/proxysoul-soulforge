@@ -122,6 +122,7 @@ export function createExploreAgent(model: LanguageModel, options?: ExploreAgentO
           "agent-error",
           `${options?.agentId ?? "explore"}: ${describeAbnormalFinish(step.finishReason)}`,
         );
+        // SDK swallows throws in onStepFinish; surfacing happens in prepareStep (step-utils.ts).
       }
     },
     // biome-ignore lint/suspicious/noExplicitAny: forgeTools come as Record<string, unknown> for cache sharing

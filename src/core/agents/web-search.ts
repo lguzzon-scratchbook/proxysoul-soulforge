@@ -49,6 +49,7 @@ export function createWebSearchAgent(
           "agent-error",
           `web-search: ${describeAbnormalFinish(step.finishReason)}`,
         );
+        // SDK swallows throws in onStepFinish; surfacing happens in prepareStep.
       }
     },
     tools: {

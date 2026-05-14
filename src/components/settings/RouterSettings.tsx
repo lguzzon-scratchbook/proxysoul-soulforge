@@ -66,7 +66,13 @@ const SECTIONS: SectionDef[] = [
     defs: [
       { kind: "slot", key: "spark", label: "Explore", icon: "read_only", hint: "Read-only agents" },
       { kind: "slot", key: "ember", label: "Code", icon: "edit", hint: "Edit agents" },
-      { kind: "slot", key: "webSearch", label: "Web", icon: "web", hint: "Web search & fetch" },
+      {
+        kind: "slot",
+        key: "webSearch",
+        label: "Web Search",
+        icon: "web",
+        hint: "Web search & fetch",
+      },
       {
         kind: "picker",
         key: "maxConcurrentAgents",
