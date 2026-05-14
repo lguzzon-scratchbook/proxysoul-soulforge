@@ -38,6 +38,7 @@
               "recipes/rename-refactor",
               "recipes/test-and-commit",
               "recipes/task-router",
+              "recipes/model-fallback",
               "recipes/plan-mode",
               "recipes/headless"
             ]

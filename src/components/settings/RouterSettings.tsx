@@ -349,14 +349,12 @@ export function RouterSettings({
             if (row.kind === "fallback") {
               const rowBg = isSelected ? t.bgPopupHighlight : t.bgPopup;
               const fbs = modelFallback?.[row.modelId] ?? [];
-              const fbLabels =
-                fbs.length > 0
-                  ? fbs.map((m) => m.split("/").pop() ?? m).join(", ")
-                  : "(no fallbacks)";
-              const label = (row.modelId.split("/").pop() ?? row.modelId)
-                .padEnd(labelCol)
-                .slice(0, labelCol);
-              const desc = truncate(fbLabels, descCol).padEnd(descCol).slice(0, descCol);
+              // Fallback rows reuse the slot layout: short model on left,
+              // chain (or em-dash) on the right where the model col sits.
+              const fallbackLabelCol = Math.min(28, Math.max(18, Math.floor(contentW * 0.32)));
+              const label = truncate(shortModel(row.modelId), fallbackLabelCol)
+                .padEnd(fallbackLabelCol)
+                .slice(0, fallbackLabelCol);
               return (
                 <box
                   // biome-ignore lint/suspicious/noArrayIndexKey: stable row layout
@@ -375,15 +373,19 @@ export function RouterSettings({
                   <text bg={rowBg} fg={t.textPrimary} attributes={BOLD}>
                     {label}
                   </text>
-                  <text bg={rowBg} fg={isSelected ? t.textSecondary : t.textMuted}>
-                    {desc}
-                  </text>
                   <box flexGrow={1} backgroundColor={rowBg} />
-                  <text bg={rowBg} fg={fbs.length > 0 ? t.brandAlt : t.textDim} attributes={BOLD}>
-                    {fbs.length > 0
-                      ? `${String(fbs.length)} fallback${fbs.length === 1 ? "" : "s"}`
-                      : "—"}
-                  </text>
+                  {fbs.length > 0 ? (
+                    <text bg={rowBg} fg={t.brandAlt} attributes={BOLD}>
+                      {truncate(
+                        `→ ${fbs.map((m) => shortModel(m)).join(", ")}`,
+                        Math.max(8, contentW - 4 - fallbackLabelCol - 2),
+                      )}
+                    </text>
+                  ) : (
+                    <text bg={rowBg} fg={t.textDim}>
+                      —
+                    </text>
+                  )}
                   <text bg={rowBg}>{"  "}</text>
                 </box>
               );
