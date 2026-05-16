@@ -14,6 +14,26 @@ import { HistoryDB } from "./db.js";
 import { FrecencyDB, type FrecencyKind, frecencyScore } from "./frecency.js";
 import { StashDB } from "./stash.js";
 
+// ── Draft restore bus ────────────────────────────────────────────────────
+// Lets out-of-tree code (slash commands, hearth, plugins) push a draft into
+// the focused InputBox without holding a ref to it.
+
+export type DraftRestoreListener = (content: string) => void;
+const _draftListeners = new Set<DraftRestoreListener>();
+
+export function onDraftRestore(fn: DraftRestoreListener): () => void {
+  _draftListeners.add(fn);
+  return () => _draftListeners.delete(fn);
+}
+
+export function emitDraftRestore(content: string): void {
+  for (const fn of _draftListeners) {
+    try {
+      fn(content);
+    } catch {}
+  }
+}
+
 export { HistoryDB } from "./db.js";
 export { FrecencyDB, type FrecencyKind, type FrecencyRow, frecencyScore } from "./frecency.js";
 export { StashDB, type StashEntry } from "./stash.js";

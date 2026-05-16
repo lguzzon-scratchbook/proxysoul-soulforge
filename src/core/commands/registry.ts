@@ -117,6 +117,15 @@ export const CATEGORIES = [
 ] as const;
 
 const COMMAND_DEFS: CommandDef[] = [
+  // ── Drafts ──
+  {
+    cmd: "/stash",
+    ic: "archive",
+    desc: "Browse stashed drafts (restore, delete)",
+    category: "Session",
+    tags: ["drafts", "stash", "prompts", "history"],
+    aliases: ["/drafts"],
+  },
   // ── Session ──
   {
     cmd: "/compact",

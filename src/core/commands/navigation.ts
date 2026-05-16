@@ -1,6 +1,8 @@
 import type { CommandPickerOption } from "../../components/modals/CommandPicker.js";
+import { confirm, openSelect } from "../../components/ui/dialogs/index.js";
 import { useTerminalStore } from "../../stores/terminals.js";
 import { useUIStore } from "../../stores/ui.js";
+import { emitDraftRestore, getStashDB } from "../history/index.js";
 import { icon } from "../icons.js";
 import { closeTerminal, spawnTerminal } from "../terminal/manager.js";
 import { getThemeTokens } from "../theme/index.js";
@@ -267,6 +269,8 @@ export function register(map: Map<string, CommandHandler>): void {
   map.set("/tab close", handleCloseTab);
   map.set("/tab rename", handleRename);
   map.set("/wizard", handleWizard);
+  map.set("/stash", handleStash);
+  map.set("/drafts", handleStash);
 }
 
 export function matchNavPrefix(cmd: string): CommandHandler | null {
@@ -276,4 +280,99 @@ export function matchNavPrefix(cmd: string): CommandHandler | null {
   if (cmd.startsWith("/terminals ")) return handleTerminals;
   if (cmd.startsWith("/terminal ")) return handleTerminals;
   return null;
+}
+async function handleStash(_input: string, ctx: CommandContext): Promise<void> {
+  const cwd = process.cwd();
+  let entries = getStashDB().list(cwd);
+  if (entries.length === 0) {
+    sysMsg(ctx, "No stashed drafts. Press Alt+S in the input to stash one.");
+    return;
+  }
+
+  const fmtCreated = (iso: string): string => {
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return iso;
+    const diff = Date.now() - t;
+    const s = Math.floor(diff / 1000);
+    if (s < 60) return `${String(s)}s ago`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${String(m)}m ago`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `${String(h)}h ago`;
+    return `${String(Math.floor(h / 24))}d ago`;
+  };
+
+  const buildOptions = () =>
+    entries.map((e) => {
+      const firstLine = (e.content.split("\n")[0] ?? "").trim();
+      const preview = firstLine.length > 80 ? `${firstLine.slice(0, 79)}…` : firstLine;
+      const lineCount = e.content.split("\n").length;
+      return {
+        value: e.id,
+        label: preview || "(empty)",
+        description: lineCount > 1 ? `${String(lineCount)} lines` : undefined,
+        meta: fmtCreated(e.createdAt),
+      };
+    });
+
+  const opts = buildOptions().map((o) => ({
+    value: o.value,
+    label: o.label,
+    description: o.description,
+    meta: o.meta,
+  }));
+  const picked = await openSelect<number>({
+    title: "Stashed Drafts",
+    titleIcon: "archive",
+    placeholder: `${String(entries.length)} drafts · fuzzy filter…`,
+    options: opts,
+    actions: [
+      {
+        key: "d",
+        label: "delete",
+        side: "right",
+        onTrigger: (opt) => {
+          if (!opt) return;
+          try {
+            getStashDB().remove(opt.value as number);
+          } catch {}
+          entries = entries.filter((e) => e.id !== (opt.value as number));
+          sysMsg(ctx, `Removed stash entry #${String(opt.value)}.`);
+        },
+      },
+      {
+        key: "X",
+        label: "clear all",
+        side: "right",
+        onTrigger: async () => {
+          const ok = await confirm({
+            title: "Clear all stashed drafts?",
+            message: `${String(entries.length)} drafts will be deleted from this project.`,
+            danger: true,
+          });
+          if (!ok) return;
+          try {
+            getStashDB().clear(cwd);
+          } catch {}
+          entries = [];
+          sysMsg(ctx, "All drafts cleared.");
+        },
+      },
+    ],
+    footerHints: [
+      { key: "Enter", label: "restore" },
+      { key: "d", label: "delete" },
+      { key: "X", label: "clear all" },
+    ],
+  });
+  if (picked) {
+    const entry = entries.find((e) => e.id === (picked.value as number));
+    if (entry) {
+      try {
+        getStashDB().remove(entry.id);
+      } catch {}
+      emitDraftRestore(entry.content);
+      sysMsg(ctx, "Draft restored to input.");
+    }
+  }
 }
