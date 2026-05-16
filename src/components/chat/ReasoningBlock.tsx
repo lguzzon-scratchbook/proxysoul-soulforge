@@ -71,7 +71,7 @@ export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
       return (
         <box key={`${id}-col`} height={1} flexShrink={0} flexDirection="row">
           <ThinkingSpinner />
-          <text fg={t.textFaint}> {brainIcon()} reasoning</text>
+          <text fg={t.textFaint}> ▶ {brainIcon()} reasoning</text>
           {lineCount > 1 && <text fg={t.textFaint}> ({String(lineCount)} lines)</text>}
           <text fg={t.textSubtle}> ^O</text>
         </box>
@@ -84,7 +84,7 @@ export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
     return (
       <box key={`${id}-col`} height={1} flexShrink={0}>
         <text fg={t.textFaint} truncate>
-          <span fg={t.success}>✓</span> {brainIcon()}{" "}
+          <span fg={t.success}>▶</span> {brainIcon()}{" "}
           <span fg={t.textFaint}>{preview || "Reasoned"}</span>
           {lineCount > 1 && <span fg={t.textFaint}> ({String(lineCount)} lines)</span>}
           <span fg={t.textFaint}> ^O</span>
@@ -115,7 +115,7 @@ export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
         marginTop={-1}
       >
         <text truncate>
-          <span fg={t.brandDim}>{brainIcon()}</span> <span fg={t.brandDim}>{label}</span>
+          <span fg={t.brandDim}>▼ {brainIcon()}</span> <span fg={t.brandDim}>{label}</span>
           {truncated ? <span fg={t.textFaint}> · tail of {String(lineCount)} lines</span> : null}
           <span fg={t.textFaint}> ^O</span>
         </text>
