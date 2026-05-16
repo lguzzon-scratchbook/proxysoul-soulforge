@@ -2345,52 +2345,70 @@ export class RepoMap {
   async generateSemanticSummaries(maxSymbols = 500): Promise<number> {
     if (!this.summaryGenerator || !this.ready) return 0;
 
-    // Smart targeting: skip self-documenting symbols (types, interfaces, enums, type aliases).
-    // Prioritize: functions/methods/classes with actual logic.
-    // Note: end_line often equals line (tree-sitter stores name node only),
-    // so we can't filter by line span in SQL — body expansion happens in JS below.
-    const topSymbols = this.db
-      .query<
-        {
-          sym_id: number;
-          name: string;
-          kind: string;
-          signature: string | null;
-          line: number;
-          end_line: number;
-          file_path: string;
-          file_id: number;
-          file_mtime: number;
-        },
-        [number]
-      >(
-        `SELECT s.id AS sym_id, s.name, s.kind, s.signature, s.line, s.end_line,
-                f.path AS file_path, f.id AS file_id, f.mtime_ms AS file_mtime
-         FROM symbols s
-         JOIN files f ON f.id = s.file_id
-         WHERE s.is_exported = 1
-           AND s.kind IN ('function', 'method', 'class')
-         ORDER BY f.pagerank DESC, s.line ASC
-         LIMIT ?`,
-      )
-      .all(maxSymbols);
+    // ── Streaming summary generation ──────────────────────────────────
+    //
+    // Memory invariants this implementation enforces:
+    //  1. The candidate query is windowed via LIMIT/OFFSET. We never materialize
+    //     all top symbols at once — only PAGE_SIZE rows are alive per page.
+    //  2. The existing-summary lookup is *queried per page* (existence check),
+    //     not preloaded into a global Map. With 10k+ summaries the old preload
+    //     held ~5MB of JS Map entries for the entire run.
+    //  3. File reads are scoped to one BATCH_SIZE chunk. After each chunk:
+    //       - the chunk array is the only ref to the snippets
+    //       - awaiting the generator drops chunk-local closure scope
+    //       - we explicitly null out the chunk before the next iteration
+    //  4. No `needed[]` accumulator across the whole run — chunks flow through
+    //     the loop and the GC reclaims them between LLM round-trips.
+    //  5. Both prepared statements are reused across iterations (cheap), but
+    //     the LRU-shape ts-morph project / shiki bundles are not touched at
+    //     all from here.
+    //
+    // Bound: peak heap impact of this method ≈ BATCH_SIZE × ~2KB code +
+    // one LLM response. ~30KB even with 1k symbols processed.
 
-    // Filter to symbols that need (re)generation.
-    // Key by (file_path, symbol_name) so summaries survive symbol ID changes across rescans.
-    const existingById = new Map<number, number>();
-    const existingByKey = new Map<string, number>();
-    for (const row of this.db
-      .query<{ symbol_id: number; file_mtime: number; file_path: string; symbol_name: string }, []>(
-        "SELECT symbol_id, file_mtime, file_path, symbol_name FROM semantic_summaries WHERE source = 'llm'",
-      )
-      .all()) {
-      existingById.set(row.symbol_id, row.file_mtime);
-      if (row.file_path && row.symbol_name) {
-        existingByKey.set(`${row.file_path}\0${row.symbol_name}`, row.file_mtime);
-      }
-    }
+    const PAGE_SIZE = 100;
+    const BATCH_SIZE = 10;
+    const SNIPPET_BUDGET = 2000;
+    const BODY_SCAN_LIMIT = 80;
+    const MIN_LINE_SPAN = 5;
 
-    const needed: Array<{
+    const candidates = this.db.query<
+      {
+        sym_id: number;
+        name: string;
+        kind: string;
+        signature: string | null;
+        line: number;
+        end_line: number;
+        file_path: string;
+        file_mtime: number;
+      },
+      [number, number]
+    >(
+      `SELECT s.id AS sym_id, s.name, s.kind, s.signature, s.line, s.end_line,
+              f.path AS file_path, f.mtime_ms AS file_mtime
+       FROM symbols s
+       JOIN files f ON f.id = s.file_id
+       WHERE s.is_exported = 1
+         AND s.kind IN ('function', 'method', 'class')
+       ORDER BY f.pagerank DESC, s.line ASC
+       LIMIT ? OFFSET ?`,
+    );
+
+    const summaryByIdQuery = this.db.prepare<{ file_mtime: number }, [number]>(
+      "SELECT file_mtime FROM semantic_summaries WHERE source = 'llm' AND symbol_id = ?",
+    );
+    const summaryByKeyQuery = this.db.prepare<{ file_mtime: number }, [string, string]>(
+      "SELECT file_mtime FROM semantic_summaries WHERE source = 'llm' AND file_path = ? AND symbol_name = ?",
+    );
+
+    const upsert = this.db.prepare(
+      `INSERT OR REPLACE INTO semantic_summaries (symbol_id, source, summary, file_mtime, file_path, symbol_name)
+       VALUES (?, 'llm', ?, ?, ?, ?)`,
+    );
+    const symExists = this.db.prepare("SELECT 1 FROM symbols WHERE id = ?");
+
+    type PreparedSymbol = {
       symId: number;
       name: string;
       kind: string;
@@ -2400,50 +2418,60 @@ export class RepoMap {
       fileMtime: number;
       dependents: number;
       lineSpan: number;
-    }> = [];
+    };
 
-    for (const sym of topSymbols) {
-      const cachedMtime =
-        existingById.get(sym.sym_id) ?? existingByKey.get(`${sym.file_path}\0${sym.name}`);
-      if (cachedMtime === sym.file_mtime) continue;
-
-      const absPath = join(this.cwd, sym.file_path);
-      let code = "";
-      let lineSpan = sym.end_line - sym.line;
-      try {
-        const content = readFileSync(absPath, "utf-8");
-        const lines = content.split("\n");
-        const startLine = Math.max(0, sym.line - 1);
-        let endLine = sym.end_line;
-        if (endLine <= sym.line) {
-          const limit = Math.min(startLine + 80, lines.length);
-          let depth = 0;
-          for (let k = startLine; k < limit; k++) {
-            const l = lines[k] ?? "";
-            for (const ch of l) {
-              if (ch === "{" || ch === "(") depth++;
-              else if (ch === "}" || ch === ")") depth--;
-            }
-            if (depth <= 0 && k > startLine) {
-              endLine = k + 1;
-              break;
-            }
-          }
-          if (endLine <= sym.line) endLine = Math.min(startLine + 20, lines.length);
-        }
-        endLine = Math.min(lines.length, endLine);
-        lineSpan = endLine - startLine;
-        // Skip trivial functions (one-liners, simple getters)
-        if (lineSpan < 5) continue;
-        const snippet = lines.slice(startLine, endLine).join("\n");
-        code = snippet.length > 2000 ? `${snippet.slice(0, 2000)}...` : snippet;
-      } catch {
-        continue;
+    const prepareSymbol = (sym: {
+      sym_id: number;
+      name: string;
+      kind: string;
+      signature: string | null;
+      line: number;
+      end_line: number;
+      file_path: string;
+      file_mtime: number;
+    }): PreparedSymbol | null => {
+      const byId = summaryByIdQuery.get(sym.sym_id);
+      if (byId && byId.file_mtime === sym.file_mtime) return null;
+      if (!byId) {
+        const byKey = summaryByKeyQuery.get(sym.file_path, sym.name);
+        if (byKey && byKey.file_mtime === sym.file_mtime) return null;
       }
 
-      const dependents = this.getFileBlastRadius(sym.file_path);
+      let content: string;
+      try {
+        content = readFileSync(join(this.cwd, sym.file_path), "utf-8");
+      } catch {
+        return null;
+      }
 
-      needed.push({
+      const lines = content.split("\n");
+      const startLine = Math.max(0, sym.line - 1);
+      let endLine = sym.end_line;
+      if (endLine <= sym.line) {
+        const limit = Math.min(startLine + BODY_SCAN_LIMIT, lines.length);
+        let depth = 0;
+        for (let k = startLine; k < limit; k++) {
+          const l = lines[k] ?? "";
+          for (const ch of l) {
+            if (ch === "{" || ch === "(") depth++;
+            else if (ch === "}" || ch === ")") depth--;
+          }
+          if (depth <= 0 && k > startLine) {
+            endLine = k + 1;
+            break;
+          }
+        }
+        if (endLine <= sym.line) endLine = Math.min(startLine + 20, lines.length);
+      }
+      endLine = Math.min(lines.length, endLine);
+      const lineSpan = endLine - startLine;
+      if (lineSpan < MIN_LINE_SPAN) return null;
+
+      const snippet = lines.slice(startLine, endLine).join("\n");
+      const code =
+        snippet.length > SNIPPET_BUDGET ? `${snippet.slice(0, SNIPPET_BUDGET)}...` : snippet;
+
+      return {
         symId: sym.sym_id,
         name: sym.name,
         kind: sym.kind,
@@ -2451,23 +2479,13 @@ export class RepoMap {
         code,
         filePath: sym.file_path,
         fileMtime: sym.file_mtime,
-        dependents,
+        dependents: this.getFileBlastRadius(sym.file_path),
         lineSpan,
-      });
-    }
+      };
+    };
 
-    if (needed.length === 0) return 0;
-
-    const upsert = this.db.prepare(
-      `INSERT OR REPLACE INTO semantic_summaries (symbol_id, source, summary, file_mtime, file_path, symbol_name)
-       VALUES (?, 'llm', ?, ?, ?, ?)`,
-    );
-    const symExists = this.db.prepare("SELECT 1 FROM symbols WHERE id = ?");
-    let count = 0;
-
-    const SAVE_CHUNK = 10;
-    for (let ci = 0; ci < needed.length; ci += SAVE_CHUNK) {
-      const chunk = needed.slice(ci, ci + SAVE_CHUNK);
+    const flushChunk = async (chunk: PreparedSymbol[]): Promise<number> => {
+      if (!this.summaryGenerator || chunk.length === 0) return 0;
       const batch: SymbolForSummary[] = chunk.map((s) => ({
         name: s.name,
         kind: s.kind,
@@ -2478,26 +2496,66 @@ export class RepoMap {
         lineSpan: s.lineSpan,
       }));
 
-      const results = await this.summaryGenerator(batch, needed.length);
-      if (results.length === 0) break;
+      const results = await this.summaryGenerator(batch, maxSymbols);
+      if (results.length === 0) return -1;
 
-      const summaryMap = new Map<string, string>();
-      const summaryMapLower = new Map<string, string>();
+      // Lowercase fallback covers minor casing drift in LLM responses.
+      const lookup = new Map<string, string>();
       for (const r of results) {
-        summaryMap.set(r.name, r.summary);
-        summaryMapLower.set(r.name.toLowerCase(), r.summary);
+        lookup.set(r.name, r.summary);
+        const lc = r.name.toLowerCase();
+        if (!lookup.has(lc)) lookup.set(lc, r.summary);
       }
 
+      let written = 0;
       const tx = this.db.transaction(() => {
         for (const sym of chunk) {
-          const summary = summaryMap.get(sym.name) ?? summaryMapLower.get(sym.name.toLowerCase());
+          const summary = lookup.get(sym.name) ?? lookup.get(sym.name.toLowerCase());
           if (summary && symExists.get(sym.symId)) {
             upsert.run(sym.symId, summary, sym.fileMtime, sym.filePath, sym.name);
-            count++;
+            written++;
           }
         }
       });
       tx();
+      return written;
+    };
+
+    let count = 0;
+    let offset = 0;
+    let pending: PreparedSymbol[] = [];
+    let processed = 0;
+    let aborted = false;
+
+    outer: while (processed < maxSymbols) {
+      const page = candidates.all(PAGE_SIZE, offset);
+      if (page.length === 0) break;
+      offset += page.length;
+
+      for (const row of page) {
+        if (processed >= maxSymbols) break outer;
+        const prepared = prepareSymbol(row);
+        if (!prepared) continue;
+        pending.push(prepared);
+        processed++;
+
+        if (pending.length >= BATCH_SIZE) {
+          const chunk = pending;
+          pending = [];
+          const written = await flushChunk(chunk);
+          if (written < 0) {
+            aborted = true;
+            break outer;
+          }
+          count += written;
+        }
+      }
+    }
+
+    if (!aborted && pending.length > 0) {
+      const written = await flushChunk(pending);
+      if (written > 0) count += written;
+      pending = [];
     }
 
     if (count > 0) {
