@@ -84,14 +84,25 @@ export async function handleCommand(input: string, ctx: CommandContext): Promise
   sysMsg(ctx, `Unknown command: ${cmd}. Type /help for available commands.`);
 }
 
-/** Command definitions for autocomplete — single source of truth */
+/** Command definitions for autocomplete — single source of truth. */
 export interface CommandDef {
   cmd: string;
+  /** Nerd-font icon name. */
   ic: string;
   desc: string;
   category: string;
+  /** Free-form keywords folded into fuzzy match. */
   tags?: string[];
+  /** Hide from autocomplete + palette listings. Still dispatchable. */
   hidden?: boolean;
+  /**
+   * Promote to the "Suggested" section when palette filter is empty.
+   * `boolean` for static, `() => boolean` for context-dependent (e.g. only
+   * suggest `/setup` when no model is connected). Evaluated on each render.
+   */
+  suggested?: boolean | (() => boolean);
+  /** Alias slash strings (e.g. `["/q", "/quit"]` for `/exit`). */
+  aliases?: string[];
 }
 
 export const CATEGORIES = [
@@ -425,6 +436,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Route models per task (code, explore, plan, verify)",
     category: "Models",
     tags: ["dispatch", "routing"],
+    suggested: true,
   },
   {
     cmd: "/web-search",
@@ -577,6 +589,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Switch forge mode",
     category: "Settings",
     tags: ["architect", "socratic", "challenge", "plan", "auto"],
+    suggested: true,
   },
   {
     cmd: "/nvim-config",
@@ -619,6 +632,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Toggle lock-in mode — hide narration, show tools + final answer",
     category: "Settings",
     tags: ["focus", "quiet", "narration", "shush"],
+    suggested: true,
   },
   {
     cmd: "/vim-hints",
@@ -779,6 +793,7 @@ const COMMAND_DEFS: CommandDef[] = [
     desc: "Command palette (Ctrl+K)",
     category: "System",
     tags: ["commands", "search"],
+    suggested: true,
   },
   {
     cmd: "/privacy",
@@ -794,8 +809,22 @@ const COMMAND_DEFS: CommandDef[] = [
     category: "System",
     tags: ["hooks", "claude", "lifecycle"],
   },
-  { cmd: "/quit", ic: "quit", desc: "Exit SoulForge", category: "System", tags: ["exit", "close"] },
-  { cmd: "/exit", ic: "quit", desc: "Exit SoulForge", category: "System", tags: ["quit", "close"] },
+  {
+    cmd: "/quit",
+    ic: "quit",
+    desc: "Exit SoulForge",
+    category: "System",
+    tags: ["exit", "close"],
+    aliases: ["/q"],
+  },
+  {
+    cmd: "/exit",
+    ic: "quit",
+    desc: "Exit SoulForge",
+    category: "System",
+    tags: ["quit", "close"],
+    aliases: ["/q"],
+  },
   { cmd: "/restart", ic: "ghost", desc: "Full restart", category: "System", tags: ["reboot"] },
   {
     cmd: "/setup",
@@ -962,3 +991,28 @@ export function getCommandDefs(): CommandDef[] {
 }
 
 export type { CommandContext, CommandHandler };
+/**
+ * Return command defs flagged as `suggested` — top picks for the palette's
+ * empty-filter state. Evaluates predicate suggesteds (e.g. only suggest
+ * `/setup` when prerequisites are missing).
+ */
+export function getSuggestedCommandDefs(): CommandDef[] {
+  return getCommandDefs().filter((d) => {
+    if (d.hidden) return false;
+    return typeof d.suggested === "function" ? d.suggested() : d.suggested === true;
+  });
+}
+
+/**
+ * Resolve a slash command's alias chain — pass a typed slash, get the canonical
+ * `cmd` if it's registered as an alias. Used by the autocomplete to surface
+ * aliases under their main entry rather than as duplicate rows.
+ */
+export function resolveAlias(slash: string): string | null {
+  const needle = slash.trim().toLowerCase();
+  for (const def of getCommandDefs()) {
+    if (def.cmd.toLowerCase() === needle) return def.cmd;
+    if (def.aliases?.some((a) => a.toLowerCase() === needle)) return def.cmd;
+  }
+  return null;
+}
