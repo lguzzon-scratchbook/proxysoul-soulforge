@@ -1,5 +1,5 @@
 import { TextAttributes } from "@opentui/core";
-import { memo, type ReactNode } from "react";
+import { memo, type ReactNode, useState } from "react";
 import { icon as getIcon } from "../../core/icons.js";
 import { getThemeTokens, useTheme } from "../../core/theme/index.js";
 import {
@@ -57,6 +57,9 @@ interface StaticToolRowProps {
   }>;
   /** When true, skip rendering diff and imageArt — caller handles them in a tree continuation box. */
   suppressExpanded?: boolean;
+  /** Full untruncated tool result text. When set, clicking the row toggles
+   *  an inline expansion showing the full content. */
+  fullResult?: string;
 }
 
 /**
@@ -82,10 +85,14 @@ function StaticToolRowImpl({
   diffStyle = "default",
   imageArt,
   suppressExpanded = false,
+  fullResult,
 }: StaticToolRowProps) {
   const t = useTheme();
   const [hovered, hoverHandlers] = useHover();
   const toggleExpand = useExpandToggle();
+  const [resultExpanded, setResultExpanded] = useState(false);
+  const hasFullResult = !!fullResult && fullResult.length > 0;
+  const handleClick = hasFullResult ? () => setResultExpanded((v) => !v) : toggleExpand;
   const rc = {
     textDone: t.textMuted,
     toolNameActive: t.brand,
@@ -98,7 +105,7 @@ function StaticToolRowImpl({
     <box
       flexDirection="column"
       backgroundColor={hovered ? t.bgElevated : undefined}
-      onMouseDown={toggleExpand}
+      onMouseDown={handleClick}
       {...hoverHandlers}
     >
       <box height={1} flexShrink={0}>
@@ -156,6 +163,12 @@ function StaticToolRowImpl({
             </box>
           ))
         : null}
+      {resultExpanded && hasFullResult ? (
+        <box marginTop={1} marginLeft={2} flexDirection="column">
+          <text fg={t.textMuted}>╰─ result ── click to collapse</text>
+          <text fg={t.textSecondary}>{fullResult}</text>
+        </box>
+      ) : null}
     </box>
   );
 }
@@ -175,6 +188,7 @@ function toolRowPropsEqual(prev: StaticToolRowProps, next: StaticToolRowProps): 
   if (prev.suffixColor !== next.suffixColor) return false;
   if (prev.diffStyle !== next.diffStyle) return false;
   if (prev.suppressExpanded !== next.suppressExpanded) return false;
+  if (prev.fullResult !== next.fullResult) return false;
   if (prev.statusContent !== next.statusContent) return false;
   // outsideBadge — shape stable, compare fields
   const pob = prev.outsideBadge;
@@ -568,5 +582,6 @@ export function buildFinalToolRowProps(tc: {
     suffixColor,
     diff,
     imageArt: tc.imageArt,
+    fullResult: tc.result?.output && tc.result.output.length > 0 ? tc.result.output : undefined,
   };
 }
