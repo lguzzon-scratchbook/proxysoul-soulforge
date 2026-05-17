@@ -12,6 +12,7 @@ import {
 import { useHover } from "../../hooks/useHover.js";
 import { DiffView } from "./DiffView.js";
 import { ImageDisplay } from "./ImageDisplay.js";
+import { useExpandToggle } from "./MessageList.js";
 import {
   detectCodeExecution,
   detectOutsideCwd,
@@ -84,6 +85,7 @@ function StaticToolRowImpl({
 }: StaticToolRowProps) {
   const t = useTheme();
   const [hovered, hoverHandlers] = useHover();
+  const toggleExpand = useExpandToggle();
   const rc = {
     textDone: t.textMuted,
     toolNameActive: t.brand,
@@ -92,9 +94,11 @@ function StaticToolRowImpl({
     error: t.error,
   };
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: opentui box is the interactive primitive in TUI; a11y rule targets DOM
     <box
       flexDirection="column"
       backgroundColor={hovered ? t.bgElevated : undefined}
+      onMouseDown={toggleExpand}
       {...hoverHandlers}
     >
       <box height={1} flexShrink={0}>

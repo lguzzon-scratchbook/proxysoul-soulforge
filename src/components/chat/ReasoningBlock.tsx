@@ -4,6 +4,7 @@ import { useTheme } from "../../core/theme/index.js";
 import { useHover } from "../../hooks/useHover.js";
 import { Spinner } from "../layout/shared.js";
 import { Markdown } from "./Markdown.js";
+import { useExpandToggle } from "./MessageList.js";
 
 const brainIcon = () => icon("brain");
 
@@ -23,6 +24,7 @@ export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
   const t = useTheme();
 
   const [hovered, hoverHandlers] = useHover();
+  const toggleExpand = useExpandToggle();
 
   const lineCount = useMemo(() => {
     let n = 1;
@@ -72,12 +74,14 @@ export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
   if (!expanded) {
     if (isStreaming) {
       return (
+        // biome-ignore lint/a11y/noStaticElementInteractions: opentui box is the interactive primitive in TUI; a11y rule targets DOM
         <box
           key={`${id}-col`}
           height={1}
           flexShrink={0}
           flexDirection="row"
           backgroundColor={hovered ? t.bgElevated : undefined}
+          onMouseDown={toggleExpand}
           {...hoverHandlers}
         >
           <ThinkingSpinner />
@@ -92,11 +96,13 @@ export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
     const firstLine = firstLineRaw.trim().replace(/\*\*/g, "");
     const preview = firstLine.length > 60 ? `${firstLine.slice(0, 57)}...` : firstLine;
     return (
+      // biome-ignore lint/a11y/noStaticElementInteractions: opentui box is the interactive primitive in TUI; a11y rule targets DOM
       <box
         key={`${id}-col`}
         height={1}
         flexShrink={0}
         backgroundColor={hovered ? t.bgElevated : undefined}
+        onMouseDown={toggleExpand}
         {...hoverHandlers}
       >
         <text fg={hovered ? t.textMuted : t.textFaint} truncate>
@@ -114,6 +120,7 @@ export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
   const truncated = isStreaming && shownLines < lineCount;
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: opentui box is the interactive primitive in TUI; a11y rule targets DOM
     <box
       key={`${id}-exp`}
       flexDirection="column"
@@ -121,6 +128,7 @@ export function ReasoningBlock({ content, expanded, isStreaming, id }: Props) {
       border
       borderStyle="rounded"
       borderColor={bc}
+      onMouseDown={toggleExpand}
     >
       <box
         height={1}

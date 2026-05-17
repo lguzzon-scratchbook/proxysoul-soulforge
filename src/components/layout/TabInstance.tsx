@@ -36,7 +36,12 @@ import { CheckpointRail } from "../chat/CheckpointRail.js";
 import { InputBox } from "../chat/InputBox.js";
 import { LockInLiveView } from "../chat/LockInStreamView.js";
 import { CodeExpandedProvider, VerboseProvider } from "../chat/Markdown.js";
-import { RAIL_BORDER, ReasoningExpandedProvider, StaticMessage } from "../chat/MessageList.js";
+import {
+  ExpandToggleProvider,
+  RAIL_BORDER,
+  ReasoningExpandedProvider,
+  StaticMessage,
+} from "../chat/MessageList.js";
 import { StreamSegmentList } from "../chat/StreamSegmentList.js";
 import { PlanProgress } from "../plan/PlanProgress.js";
 import { PlanReviewPrompt } from "../plan/PlanReviewPrompt.js";
@@ -533,6 +538,10 @@ export const TabInstance = memo(function TabInstance({
   );
   const codeExpanded = !!codeExpandedMap[tabId];
   const reasoningExpanded = !!reasoningExpandedMap[tabId];
+  const toggleAllExpandedForTab = useCallback(
+    () => useUIStore.getState().toggleAllExpanded(tabId),
+    [tabId],
+  );
 
   const showPlanProgress = !!chat.activePlan;
   const tasks = useTaskList(tabId);
@@ -738,80 +747,88 @@ export const TabInstance = memo(function TabInstance({
                 }
                 horizontalScrollbarOptions={SCROLLBAR_HIDDEN}
               >
-                <CodeExpandedProvider value={codeExpanded}>
-                  <VerboseProvider value={effectiveConfig.verbose === true}>
-                    <ReasoningExpandedProvider value={reasoningExpanded}>
-                      {hiddenCount > 0 && (
-                        <box paddingX={1} marginBottom={1}>
-                          <text fg={t.textDim}>
-                            ── {String(hiddenCount)} earlier message{hiddenCount > 1 ? "s" : ""} ──
-                          </text>
-                        </box>
-                      )}
-                      {visibleMessages.map((msg) => (
-                        <box key={msg.id} id={`msg-${msg.id}`} flexDirection="column" width="100%">
-                          {msg.id === firstDimmedMessageId && (
-                            <box marginTop={1} height={1} paddingX={1}>
-                              <text fg={dimmedReason === "viewing" ? t.textMuted : t.warning}>
-                                {dimmedReason === "viewing"
-                                  ? `${icon("rewind")} Viewing checkpoint #${String(checkpointViewing)}, send a message to rewind here.`
-                                  : `${icon("rewind")} Rewound past this point.`}
-                              </text>
-                            </box>
-                          )}
-                          <StaticMessage
-                            msg={msg}
-                            chatStyle={chatStyle}
-                            diffStyle={effectiveConfig.diffStyle}
-                            collapseDiffs={effectiveConfig.collapseDiffs === true}
-                            showReasoning={showReasoning}
-                            reasoningExpanded={reasoningExpanded}
-                            animate={false}
-                            lockIn={lockIn}
-                            dimmed={dimmedMessageIds.has(msg.id)}
-                            verbose={effectiveConfig.verbose === true}
-                          />
-                        </box>
-                      ))}
-                      {isStreaming && (
-                        <box paddingX={1} flexShrink={0} marginBottom={1}>
-                          <box
-                            flexDirection="column"
-                            border={["left"]}
-                            borderColor={t.brand}
-                            customBorderChars={RAIL_BORDER}
-                            paddingLeft={2}
-                          >
-                            <box>
-                              <text fg={t.brand}>
-                                {icon("ai")} Forge
-                                {lockIn ? <span fg={t.textMuted}> (locked in)</span> : null}
-                              </text>
-                            </box>
-                            {lockIn ? (
-                              <LockInLiveView
-                                liveToolCalls={chat.liveToolCalls}
-                                loadingStartedAt={loadingStartedAtRef.current}
-                                messagesLength={chat.messages.length}
-                              />
-                            ) : (
-                              <StreamSegmentList
-                                segments={chat.streamSegments}
-                                toolCalls={chat.liveToolCalls}
-                                streaming={chat.isLoading}
-                                verbose={effectiveConfig.verbose === true}
-                                diffStyle={effectiveConfig.diffStyle}
-                                showReasoning={showReasoning}
-                                reasoningExpanded={reasoningExpanded}
-                                lockIn={lockIn}
-                              />
-                            )}
+                <ExpandToggleProvider value={toggleAllExpandedForTab}>
+                  <CodeExpandedProvider value={codeExpanded}>
+                    <VerboseProvider value={effectiveConfig.verbose === true}>
+                      <ReasoningExpandedProvider value={reasoningExpanded}>
+                        {hiddenCount > 0 && (
+                          <box paddingX={1} marginBottom={1}>
+                            <text fg={t.textDim}>
+                              ── {String(hiddenCount)} earlier message{hiddenCount > 1 ? "s" : ""}{" "}
+                              ──
+                            </text>
                           </box>
-                        </box>
-                      )}
-                    </ReasoningExpandedProvider>
-                  </VerboseProvider>
-                </CodeExpandedProvider>
+                        )}
+                        {visibleMessages.map((msg) => (
+                          <box
+                            key={msg.id}
+                            id={`msg-${msg.id}`}
+                            flexDirection="column"
+                            width="100%"
+                          >
+                            {msg.id === firstDimmedMessageId && (
+                              <box marginTop={1} height={1} paddingX={1}>
+                                <text fg={dimmedReason === "viewing" ? t.textMuted : t.warning}>
+                                  {dimmedReason === "viewing"
+                                    ? `${icon("rewind")} Viewing checkpoint #${String(checkpointViewing)}, send a message to rewind here.`
+                                    : `${icon("rewind")} Rewound past this point.`}
+                                </text>
+                              </box>
+                            )}
+                            <StaticMessage
+                              msg={msg}
+                              chatStyle={chatStyle}
+                              diffStyle={effectiveConfig.diffStyle}
+                              collapseDiffs={effectiveConfig.collapseDiffs === true}
+                              showReasoning={showReasoning}
+                              reasoningExpanded={reasoningExpanded}
+                              animate={false}
+                              lockIn={lockIn}
+                              dimmed={dimmedMessageIds.has(msg.id)}
+                              verbose={effectiveConfig.verbose === true}
+                            />
+                          </box>
+                        ))}
+                        {isStreaming && (
+                          <box paddingX={1} flexShrink={0} marginBottom={1}>
+                            <box
+                              flexDirection="column"
+                              border={["left"]}
+                              borderColor={t.brand}
+                              customBorderChars={RAIL_BORDER}
+                              paddingLeft={2}
+                            >
+                              <box>
+                                <text fg={t.brand}>
+                                  {icon("ai")} Forge
+                                  {lockIn ? <span fg={t.textMuted}> (locked in)</span> : null}
+                                </text>
+                              </box>
+                              {lockIn ? (
+                                <LockInLiveView
+                                  liveToolCalls={chat.liveToolCalls}
+                                  loadingStartedAt={loadingStartedAtRef.current}
+                                  messagesLength={chat.messages.length}
+                                />
+                              ) : (
+                                <StreamSegmentList
+                                  segments={chat.streamSegments}
+                                  toolCalls={chat.liveToolCalls}
+                                  streaming={chat.isLoading}
+                                  verbose={effectiveConfig.verbose === true}
+                                  diffStyle={effectiveConfig.diffStyle}
+                                  showReasoning={showReasoning}
+                                  reasoningExpanded={reasoningExpanded}
+                                  lockIn={lockIn}
+                                />
+                              )}
+                            </box>
+                          </box>
+                        )}
+                      </ReasoningExpandedProvider>
+                    </VerboseProvider>
+                  </CodeExpandedProvider>
+                </ExpandToggleProvider>
                 {lockIn ? (
                   chat.isLoading ? (
                     <box paddingX={1} height={1} flexShrink={0}>

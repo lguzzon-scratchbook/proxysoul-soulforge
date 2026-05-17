@@ -43,6 +43,17 @@ function useReasoningExpanded(): boolean {
   return useContext(ReasoningExpandedContext);
 }
 
+// Surfaces (reasoning, tool rows) can call this to toggle the
+// global expand/collapse state for the active tab — same effect as ^O.
+// TabInstance supplies the bound callback; default is a no-op so
+// orphaned renders (snapshots, exports) don't blow up.
+const ExpandToggleContext = createContext<() => void>(() => {});
+export const ExpandToggleProvider = ExpandToggleContext.Provider;
+
+export function useExpandToggle(): () => void {
+  return useContext(ExpandToggleContext);
+}
+
 const REVEAL_INTERVAL = 45;
 const MAX_REVEAL_STEPS = 8;
 const CURSOR_CHAR = "\u2588"; // █
