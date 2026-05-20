@@ -49,7 +49,6 @@ import { bounceProxy, proxyHealthProbe } from "../core/proxy/lifecycle.js";
 import { resolveRetrySettings } from "../core/retry/settings.js";
 import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { SessionManager } from "../core/sessions/manager.js";
-import { createThinkingParser } from "../core/thinking-parser.js";
 import { emitCacheReset, onFileEdited } from "../core/tools/file-events.js";
 import { planFileName } from "../core/tools/index.js";
 import { setShellCoAuthorEnabled } from "../core/tools/shell.js";
@@ -2303,9 +2302,6 @@ export function useChat({
           }
 
           const toolCallArgs = new Map<string, string>();
-          const thinkingParser = createThinkingParser();
-          let hasNativeReasoning = false;
-          let thinkingIdCounter = 0;
           const streamErrors: string[] = [];
 
           const buf = streamSegmentsBuffer.current;
@@ -2575,7 +2571,6 @@ export function useChat({
                 break;
               }
               case "reasoning-start": {
-                hasNativeReasoning = true;
                 pushReasoningSegment(part.id);
                 break;
               }
@@ -2592,27 +2587,7 @@ export function useChat({
                 break;
               case "text-delta": {
                 gotFirstContent = true;
-                if (hasNativeReasoning) {
-                  appendText(part.text);
-                } else {
-                  const parsed = thinkingParser.feed(part.text);
-                  for (const chunk of parsed) {
-                    switch (chunk.type) {
-                      case "text":
-                        appendText(chunk.content);
-                        break;
-                      case "reasoning-start":
-                        pushReasoningSegment(`thinking-${String(thinkingIdCounter++)}`);
-                        break;
-                      case "reasoning-content":
-                        appendReasoningContent(chunk.content);
-                        break;
-                      case "reasoning-end":
-                        markReasoningDone();
-                        break;
-                    }
-                  }
-                }
+                appendText(part.text);
                 // Stream visible text to Hearth surfaces in real time (coalesced).
                 void import("../hearth/bridge.js").then(({ bridgeStreamEmitter }) => {
                   bridgeStreamEmitter.stream(tabId, { type: "text", content: part.text });
@@ -3056,21 +3031,6 @@ export function useChat({
             flushTimerRef.current = null;
           }
           flushStreamState();
-
-          if (!hasNativeReasoning) {
-            for (const chunk of thinkingParser.flush()) {
-              switch (chunk.type) {
-                case "text":
-                  appendText(chunk.content);
-                  break;
-                case "reasoning-content":
-                  appendReasoningContent(chunk.content);
-                  break;
-                default:
-                  break;
-              }
-            }
-          }
 
           let responseMessages: ModelMessage[];
           try {
