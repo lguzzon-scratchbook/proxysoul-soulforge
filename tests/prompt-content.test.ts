@@ -55,6 +55,11 @@ describe("shared-identity content", () => {
     expect(CORE_RULES).toContain("Silent tool loop");
     expect(CORE_RULES).toContain("Speak only at the end");
   });
+
+  test("warns that interstitial text is invisible to the user", () => {
+    expect(CORE_RULES).toContain("Interstitial text is INVISIBLE");
+    expect(SHARED_IDENTITY).toContain("Interstitial text is INVISIBLE");
+  });
 });
 
 describe("family prompts carry only tonal delta", () => {

@@ -75,6 +75,7 @@
     "@ai-sdk/openai-compatible": "^2.0.47",
     "@ai-sdk/xai": "^3.0.89",
     "@anthropic-ai/sdk": "0.91.1",
+    "@clack/prompts": "^1.4.0",
     "@llmgateway/ai-sdk-provider": "3.7.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mozilla/readability": "0.6.0",

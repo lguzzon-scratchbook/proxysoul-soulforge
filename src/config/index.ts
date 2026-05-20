@@ -32,8 +32,12 @@ function mergeMCPServers(
   return [...map.values()];
 }
 
-const CONFIG_DIR = join(homedir(), ".soulforge");
-const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+function getConfigDir(): string {
+  return join(process.env.HOME ?? homedir(), ".soulforge");
+}
+function getConfigFile(): string {
+  return join(getConfigDir(), "config.json");
+}
 
 export const DEFAULT_CONFIG: AppConfig = {
   defaultModel: "none",
@@ -72,27 +76,50 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
 };
 
+// Preset overlay precomputed at boot. Sync to keep loadConfig() sync for all
+// existing call sites. Set via setPresetOverlay() once presets are resolved.
+let _presetOverlay: Partial<AppConfig> | null = null;
+
+export function setPresetOverlay(overlay: Partial<AppConfig> | null): void {
+  _presetOverlay = overlay;
+}
+
+export function getPresetOverlay(): Partial<AppConfig> | null {
+  return _presetOverlay;
+}
+
 /** Load global config from ~/.soulforge/config.json */
 export function loadConfig(): AppConfig {
-  if (!existsSync(CONFIG_DIR)) {
-    mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  const configDir = getConfigDir();
+  const configFile = getConfigFile();
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
   }
 
-  if (!existsSync(CONFIG_FILE)) {
-    writeFileSync(CONFIG_FILE, JSON.stringify(DEFAULT_CONFIG, null, 2));
-    return DEFAULT_CONFIG;
+  // Preserve original behavior: seed file on first run.
+  if (!existsSync(configFile)) {
+    writeFileSync(configFile, JSON.stringify(DEFAULT_CONFIG, null, 2));
+    if (!_presetOverlay) return DEFAULT_CONFIG;
   }
 
+  let userConfig: Partial<AppConfig> = {};
   try {
-    const raw = readFileSync(CONFIG_FILE, "utf-8");
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
+    userConfig = JSON.parse(readFileSync(configFile, "utf-8")) as Partial<AppConfig>;
   } catch (err) {
     logBackgroundError(
       "config",
-      `Failed to parse ${CONFIG_FILE}: ${err instanceof Error ? err.message : String(err)} — using defaults`,
+      `Failed to parse ${configFile}: ${err instanceof Error ? err.message : String(err)} — using defaults`,
     );
-    return DEFAULT_CONFIG;
+    if (!_presetOverlay) return DEFAULT_CONFIG;
   }
+
+  // Layer order: defaults -> presets -> user config (user wins).
+  // When no overlay is set, the merged result equals the original
+  // { ...DEFAULT_CONFIG, ...userConfig } shallow merge.
+  let merged: AppConfig = { ...DEFAULT_CONFIG };
+  if (_presetOverlay) merged = applyConfigPatch(merged, _presetOverlay) as AppConfig;
+  merged = { ...merged, ...userConfig };
+  return merged;
 }
 
 /** Load project-level config from <cwd>/.soulforge/config.json */
@@ -161,10 +188,11 @@ export function mergeConfigs(global: AppConfig, project: Partial<AppConfig> | nu
 
 /** Save global config to ~/.soulforge/config.json */
 export function saveConfig(config: AppConfig): void {
-  if (!existsSync(CONFIG_DIR)) {
-    mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  const configDir = getConfigDir();
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
   }
-  writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+  writeFileSync(getConfigFile(), JSON.stringify(config, null, 2));
 }
 
 /** Save a partial config to <cwd>/.soulforge/config.json (deep-merge). */
@@ -193,11 +221,13 @@ export function saveProjectConfig(cwd: string, patch: Partial<AppConfig>): void 
 
 /** Save a partial config to ~/.soulforge/config.json (deep-merge). */
 export function saveGlobalConfig(patch: Partial<AppConfig>): void {
-  if (!existsSync(CONFIG_DIR)) mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  const configDir = getConfigDir();
+  const configFile = getConfigFile();
+  if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true, mode: 0o700 });
 
   let existing: AppConfig = DEFAULT_CONFIG;
   try {
-    existing = { ...DEFAULT_CONFIG, ...JSON.parse(readFileSync(CONFIG_FILE, "utf-8")) };
+    existing = { ...DEFAULT_CONFIG, ...JSON.parse(readFileSync(configFile, "utf-8")) };
   } catch {
     // no existing file
   }
@@ -211,7 +241,7 @@ export function saveGlobalConfig(patch: Partial<AppConfig>): void {
     merged.agentFeatures = { ...existing.agentFeatures, ...patch.agentFeatures };
   if (patch.retry) merged.retry = { ...existing.retry, ...patch.retry };
 
-  writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2));
+  writeFileSync(configFile, JSON.stringify(merged, null, 2));
 }
 
 /** Remove specific top-level keys from project config. */
@@ -227,11 +257,12 @@ export function removeProjectConfigKeys(cwd: string, keys: string[]): void {
 
 /** Remove specific top-level keys from global config. */
 export function removeGlobalConfigKeys(keys: string[]): void {
-  if (!existsSync(CONFIG_FILE)) return;
+  const configFile = getConfigFile();
+  if (!existsSync(configFile)) return;
   try {
-    const existing = JSON.parse(readFileSync(CONFIG_FILE, "utf-8")) as Record<string, unknown>;
+    const existing = JSON.parse(readFileSync(configFile, "utf-8")) as Record<string, unknown>;
     for (const k of keys) delete existing[k];
-    writeFileSync(CONFIG_FILE, JSON.stringify(existing, null, 2));
+    writeFileSync(configFile, JSON.stringify(existing, null, 2));
   } catch {}
 }
 
