@@ -69,18 +69,19 @@ Same model (Claude Opus 4.6), same codebase, same prompt.
 
 ## Features
 
-| | |
+| Feature | What it does |
 |---|---|
 | **AST editing** | TS/JS edits via ts-morph, 65+ ops, atomic batches. [docs](https://soulforge.proxysoul.com/tools/ast-edit) |
 | **Live Soul Map** | SQLite graph, PageRank + git co-change, blast-radius tags. [docs](https://soulforge.proxysoul.com/concepts/repo-map) |
 | **LSP + Mason** | 576+ servers installable from the TUI |
 | **33 languages** | symbol-level reads, not file dumps |
 | **Compound tools** | `rename_symbol`, `move_symbol`, `refactor`, `project` (23 toolchains) |
+| **Task router** | route each slot (spark / ember / compact / verify / web / semantic) to a different model per tab. Haiku for exploration, Sonnet for code, Flash for compaction. `/router`. [docs](https://soulforge.proxysoul.com/recipes/task-router) |
 | **V2 compaction** | usually 0 LLM tokens. [docs](https://soulforge.proxysoul.com/context/compaction) |
 | **Parallel agents** | Spark + Ember with shared I/O cache |
 | **Embedded Neovim** | real nvim in a PTY, your config |
 | **5 tabs** | per-tab model, session, checkpoints, file claims |
-| **Checkpoints** | every turn is a restore point, `Ctrl+B` / `Ctrl+F` |
+| **Time machine** | every prompt is a checkpoint with a git tag. `Ctrl+B` / `Ctrl+F` rewinds and redoes both conversation and files on disk. `/checkpoint undo <N>`, `/checkpoint save`, per-tab |
 | **21 providers** | Anthropic, OpenAI, Google, Groq, DeepSeek, Bedrock, Ollama, LM Studio, ... + any OpenAI-compatible |
 | **Cost tracking** | per-model + per-subagent USD, cache-aware |
 | **MCP + hooks** | any MCP server, 13 events, drop-in `.claude/settings.json` |
