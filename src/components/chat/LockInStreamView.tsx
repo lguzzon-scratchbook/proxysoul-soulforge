@@ -328,8 +328,13 @@ export const LockInLiveAutoView = memo(function LockInLiveAutoView({
 
   // Only render trailing text when the model has explicitly committed via set_lockin({on:false}).
   // Pre-commit text after a tool is interstitial work, not a final answer — it folds into the rail.
+  // If more tool clusters land AFTER the commit, the model violated the "last tool" rule —
+  // invalidate the commit so the text re-folds into the rail and we don't strand prose above growing tools.
   const trailingText = useMemo(() => {
     if (committedAt === null) return null;
+    for (let i = committedAt; i < segments.length; i++) {
+      if (segments[i]?.type === "tools") return null;
+    }
     const parts: string[] = [];
     for (let i = committedAt; i < segments.length; i++) {
       const seg = segments[i];
