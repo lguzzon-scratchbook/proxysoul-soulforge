@@ -91,19 +91,6 @@ Same model (Claude Opus 4.6), same codebase, same prompt.
 | **Hearth** *(exp)* | remote control via Telegram or Discord, your host only |
 | **36 themes** | hot-reloaded JSON, Kitty inline images |
 
-## Comparison
-
-| | SoulForge | Claude Code | Codex CLI | OpenCode |
-|---|---|---|---|---|
-| Codebase model | SQLite graph + PageRank | grep | grep | grep |
-| TS/JS edits | AST (ts-morph) | text diff | text diff | text diff |
-| LSP | built-in + Mason | plugins | none | auto-load |
-| Compaction | V2, often 0 tokens | auto | server-side | auto |
-| Embedded editor | Neovim | none | none | none |
-| Remote control | Telegram, Discord | none | none | none |
-| Providers | 21 + custom | Anthropic | OpenAI | 75+ |
-| License | BSL 1.1 (Apache 2030) | Proprietary | Apache 2.0 | MIT |
-
 ## License
 
 [BSL 1.1](LICENSE). Free for personal and internal use. Commercial use: [commercial license](COMMERCIAL_LICENSE.md). Converts to Apache 2.0 on March 15, 2030.
