@@ -90,7 +90,7 @@ export function resolveTheme(name: string): ThemeTokens {
     return { ...base, ...overrides };
   }
 
-  return DARK_THEME;
+  return BUILTIN_THEMES["proxysoul-coffee"] ?? DARK_THEME;
 }
 
 /**

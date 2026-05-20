@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { DARK_THEME, normalizeTokenKey, type ThemeTokens } from "./tokens.js";
+import { normalizeTokenKey, type ThemeTokens, BUILTIN_THEMES, DARK_THEME } from "./tokens.js";
 
 interface ThemeState {
   name: string;
@@ -8,8 +8,8 @@ interface ThemeState {
 }
 
 export const useThemeStore = create<ThemeState>((set) => ({
-  name: "dark",
-  tokens: DARK_THEME,
+  name: "proxysoul-coffee",
+  tokens: BUILTIN_THEMES["proxysoul-coffee"] ?? DARK_THEME,
   setTheme: (name, tokens) => set({ name, tokens }),
 }));
 
