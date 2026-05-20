@@ -43,6 +43,12 @@ import {
 } from "./stream-options.js";
 import { buildSubagentTools, type SharedCacheRef } from "./subagent-tools.js";
 
+/** Per-tool-call-part signature cache for loop detection. Tool-call inputs are
+ *  immutable; the part object is reused across prepareStep invocations as
+ *  ToolLoopAgent rebuilds from initialMessages + responseMessages. WeakMap so
+ *  evicted messages garbage-collect their entries automatically. */
+const loopSigCache = new WeakMap<object, string>();
+
 const RESTRICTED_MODES = new Set<ForgeMode>(["architect", "socratic", "challenge", "plan"]);
 
 const PLAN_NUDGE_STEP = 10;
@@ -85,6 +91,7 @@ function buildForgePrepareStep(
   contextManager?: {
     buildCrossTabSection(): string | null;
     buildSoulMapDiff(): string | null;
+    hasSoulMapDiff?(): boolean;
     commitSoulMapDiff(): void;
     buildSkillsBlock(): string | null;
     buildMemoryRecallMessages(
@@ -122,7 +129,7 @@ function buildForgePrepareStep(
   // Proxy instructions message — injected once as the first user message so the proxy
   // cloaking doesn't strip it (it only replaces the system prompt, not user messages).
   const proxyInstructionsMessage: ModelMessage | null = proxyInstructions
-    ? {
+    ? ({
         role: "user" as const,
         content: [
           {
@@ -130,7 +137,8 @@ function buildForgePrepareStep(
             text: `<system-instructions>\n${proxyInstructions}\n</system-instructions>`,
           },
         ],
-      }
+        providerOptions: EPHEMERAL_CACHE,
+      } as ModelMessage)
     : null;
 
   type StepEntry = {
@@ -208,7 +216,7 @@ function buildForgePrepareStep(
     const hints: string[] = [];
     let soulMapDiff: string | null = null;
 
-    if (contextManager) {
+    if (contextManager?.hasSoulMapDiff?.()) {
       soulMapDiff = contextManager.buildSoulMapDiff();
     }
 
@@ -264,39 +272,45 @@ function buildForgePrepareStep(
 
     // [4] Read nudges disabled — conversational hints cause "You're right" responses.
     // Read steering handled by system prompt ("max 3 exploration rounds").
-    // [5] Loop detection only
+    // [5] Loop detection — hint only, no activeTools blocking.
+    // Memoization: JSON.stringify(part.input) cached per-part via WeakMap since
+    // tool-call inputs are immutable. Slides a 16-message window — old entries
+    // age out naturally, no manual eviction needed.
     if (!isPlanMode && stepNumber >= 3) {
-      // [5] Loop detection — hint only, no activeTools blocking
       const LOOP_THRESHOLD = 3;
       const LOOP_WINDOW = 16;
-      // Count tool calls in the raw messages (before inject re-insertion)
       const callCounts = new Map<string, { toolName: string; count: number }>();
       const startIdx = Math.max(0, messages.length - LOOP_WINDOW);
-      for (let i = startIdx; i < messages.length; i++) {
+      outer: for (let i = startIdx; i < messages.length; i++) {
         const m = messages[i];
         if (m?.role !== "assistant" || !Array.isArray(m.content)) continue;
         for (const part of m.content) {
           if (typeof part !== "object" || part === null || !("type" in part)) continue;
           const p = part as { type: string; toolName?: string; input?: unknown };
           if (p.type !== "tool-call" || !p.toolName) continue;
-          let argStr: string;
-          try {
-            argStr = JSON.stringify(p.input ?? {});
-          } catch {
-            argStr = "{}";
+          let sig = loopSigCache.get(part as object);
+          if (sig === undefined) {
+            let argStr: string;
+            try {
+              argStr = JSON.stringify(p.input ?? {});
+            } catch {
+              argStr = "{}";
+            }
+            sig = `${p.toolName}::${argStr}`;
+            loopSigCache.set(part as object, sig);
           }
-          const sig = `${p.toolName}::${argStr}`;
           const entry = callCounts.get(sig);
-          if (entry) entry.count++;
-          else callCounts.set(sig, { toolName: p.toolName, count: 1 });
-        }
-      }
-      for (const [, entry] of callCounts) {
-        if (entry.count >= LOOP_THRESHOLD) {
-          hints.push(
-            `🔁 ${entry.toolName} called ${String(entry.count)}× with identical arguments — same result each time. Use the result you already have, or try a different tool/approach.`,
-          );
-          break;
+          if (entry) {
+            entry.count++;
+            if (entry.count >= LOOP_THRESHOLD) {
+              hints.push(
+                `🔁 ${entry.toolName} called ${String(entry.count)}× with identical arguments — same result each time. Use the result you already have, or try a different tool/approach.`,
+              );
+              break outer;
+            }
+          } else {
+            callCounts.set(sig, { toolName: p.toolName, count: 1 });
+          }
         }
       }
     }

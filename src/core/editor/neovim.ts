@@ -40,19 +40,13 @@ export function killAllNvimProcesses(): void {
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 
-/**
- * Launch neovim in a real PTY with a separate RPC socket channel.
- * The PTY handles all rendering (cursor shapes, escape sequences, scroll regions)
- * via ghostty's VT parser. RPC over --listen socket provides API access.
- *
- * Flags:
- * - `--listen <socket>`: open RPC channel on a Unix socket
- * - `-i NONE`: skip ShaDa file (marks, registers, history — irrelevant for embedded use)
- */
-let _onFileWritten: ((absPath: string) => void) | null = null;
+const _onFileWrittenHandlers = new Set<(absPath: string) => void>();
 
-export function setNeovimFileWrittenHandler(handler: (absPath: string) => void): void {
-  _onFileWritten = handler;
+export function setNeovimFileWrittenHandler(handler: (absPath: string) => void): () => void {
+  _onFileWrittenHandlers.add(handler);
+  return () => {
+    _onFileWrittenHandlers.delete(handler);
+  };
 }
 
 export async function launchNeovim(
@@ -149,9 +143,15 @@ export async function launchNeovim(
 
   // Listen for file-written notifications on the RPC channel
   api.on("notification", (method: string, args: unknown[]) => {
-    if (method === "soulforge:file_written" && _onFileWritten) {
+    if (method === "soulforge:file_written" && _onFileWrittenHandlers.size > 0) {
       const path = Array.isArray(args) ? args[0] : undefined;
-      if (typeof path === "string" && path) _onFileWritten(path);
+      if (typeof path === "string" && path) {
+        for (const h of _onFileWrittenHandlers) {
+          try {
+            h(path);
+          } catch {}
+        }
+      }
     }
   });
 

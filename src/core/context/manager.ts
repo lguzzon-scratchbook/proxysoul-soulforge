@@ -20,6 +20,7 @@ import {
   buildSystemPrompt as buildPrompt,
   buildSoulMapUserMessage as buildSoulMapContent,
   getModeInstructions,
+  invalidateDirectoryTree,
   type PromptBuilderOptions,
 } from "../prompts/index.js";
 // buildForbiddenContext removed from system prompt — gates enforce at tool level
@@ -297,7 +298,7 @@ export class ContextManager {
       this.onFileChanged(absPath);
     });
     this.unsubRead = onFileRead((absPath) => this.trackMentionedFile(absPath));
-    setNeovimFileWrittenHandler((absPath) => {
+    this.unsubNvimWritten = setNeovimFileWrittenHandler((absPath) => {
       emitFileEdited(absPath, "");
     });
   }
@@ -476,6 +477,7 @@ export class ContextManager {
       }
     }
     this.editedFiles.add(absPath);
+    invalidateDirectoryTree(this.cwd);
     const rel = absPath.startsWith(`${this.cwd}/`) ? absPath.slice(this.cwd.length + 1) : absPath;
     this.soulMapDiffChangedFiles.set(rel, ++this.soulMapDiffSeq);
     this.pendingSoulMapDiff = null; // invalidate so buildSoulMapDiff() rebuilds with new file
@@ -488,10 +490,13 @@ export class ContextManager {
     }
   }
 
-  /** Pre-render a rich diff block for a changed file (blast radius + exported symbols with signatures). */
+  /** Pre-render a rich diff block for a changed file (blast radius + exported symbols with signatures).
+   *  Debounced per-file — rapid edits collapse into a single fetch after the burst settles. */
   private prefetchDiffBlock(rel: string): void {
-    // Delay slightly to let the reindex settle
-    setTimeout(() => {
+    const existing = this.prefetchTimers.get(rel);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      this.prefetchTimers.delete(rel);
       this.repoMap
         .getFileDiffBlock(rel)
         .then(({ blastRadius, symbols }) => {
@@ -522,6 +527,7 @@ export class ContextManager {
           );
         });
     }, 300);
+    this.prefetchTimers.set(rel, timer);
   }
 
   /** Track a file mentioned in conversation (tool reads, grep hits, etc.) */
@@ -1064,8 +1070,12 @@ export class ContextManager {
   dispose(): void {
     this.unsubEdit?.();
     this.unsubRead?.();
+    this.unsubNvimWritten?.();
     this.unsubEdit = null;
     this.unsubRead = null;
+    this.unsubNvimWritten = null;
+    for (const t of this.prefetchTimers.values()) clearTimeout(t);
+    this.prefetchTimers.clear();
     this._unsubProviderSwitch?.();
     this._unsubProviderSwitch = null;
     if (!this.isChild) {
@@ -1602,6 +1612,13 @@ export class ContextManager {
   }
 
   private _unsubProviderSwitch: (() => void) | null = null;
+  private unsubNvimWritten: (() => void) | null = null;
+  private prefetchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /** Cheap O(1) check — true when buildSoulMapDiff would produce content. */
+  hasSoulMapDiff(): boolean {
+    return this.soulMapDiffChangedFiles.size > 0 && this.isRepoMapReady();
+  }
 }
 
 export { extractConversationTerms } from "./conversation-terms.js";

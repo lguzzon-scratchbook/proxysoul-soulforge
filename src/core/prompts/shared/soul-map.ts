@@ -31,19 +31,48 @@ The map gives you the names, LSP gives you the details.`;
 const LEGEND = "+ = exported. (→N) = blast radius. [NEW] = modified in last 48h.\n";
 const DIR_TREE_DEPTH = 2;
 
+const DIR_TREE_TTL_MS = 60_000;
+const dirTreeCache = new Map<string, { result: string | null; at: number }>();
+
 /**
  * Build a shallow directory tree (2 levels deep) for project structure overview.
  * Complements the Soul Map's file-level detail with directory-level context.
+ *
+ * Result cached per `(cwd, limit)` for DIR_TREE_TTL_MS. The cache also clears
+ * on edit via `invalidateDirectoryTree(cwd)` — called from ContextManager when
+ * the file set changes. TTL is the fallback for external file creates/deletes
+ * that bypass the edit hook.
  */
 export function buildDirectoryTree(cwd: string, limit = 60): string | null {
+  const key = `${cwd}|${String(limit)}`;
+  const cached = dirTreeCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.at < DIR_TREE_TTL_MS) {
+    return cached.result;
+  }
   const lines: string[] = [];
   walkDir(cwd, "", DIR_TREE_DEPTH, lines);
-  if (lines.length === 0) return null;
-  const trimmed = lines.length > limit ? lines.slice(0, limit) : lines;
-  return (
-    trimmed.join("\n") +
-    (lines.length > limit ? `\n... (${String(lines.length - limit)} more)` : "")
-  );
+  let result: string | null;
+  if (lines.length === 0) {
+    result = null;
+  } else {
+    const trimmed = lines.length > limit ? lines.slice(0, limit) : lines;
+    result =
+      trimmed.join("\n") +
+      (lines.length > limit ? `\n... (${String(lines.length - limit)} more)` : "");
+  }
+  dirTreeCache.set(key, { result, at: now });
+  return result;
+}
+
+export function invalidateDirectoryTree(cwd?: string): void {
+  if (!cwd) {
+    dirTreeCache.clear();
+    return;
+  }
+  for (const key of dirTreeCache.keys()) {
+    if (key.startsWith(`${cwd}|`)) dirTreeCache.delete(key);
+  }
 }
 
 export function buildSoulMapUserMessage(

@@ -15,6 +15,7 @@ export {
   buildDirectoryTree,
   buildSoulMapAck,
   buildSoulMapUserMessage,
+  invalidateDirectoryTree,
   TOOL_GUIDANCE_NO_MAP,
   TOOL_GUIDANCE_WITH_MAP,
 } from "./shared/index.js";
