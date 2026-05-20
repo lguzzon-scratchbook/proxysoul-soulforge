@@ -107,10 +107,13 @@ export class MemoryDB {
     this.db = new Database(dbPath);
     this.db.run("PRAGMA journal_mode = WAL");
     this.db.run("PRAGMA busy_timeout = 5000");
+    this.db.run("PRAGMA synchronous = NORMAL");
     this.db.run("PRAGMA foreign_keys = ON");
     if (dbPath !== ":memory:") {
+      // Use PASSIVE checkpoint: never blocks or errors other connections.
+      // TRUNCATE on open races sibling sf processes and surfaces SQLITE_IOERR.
       try {
-        this.db.run("PRAGMA wal_checkpoint(TRUNCATE)");
+        this.db.run("PRAGMA wal_checkpoint(PASSIVE)");
       } catch {}
       for (const suffix of ["", "-wal", "-shm"]) {
         try {
@@ -707,42 +710,56 @@ export class MemoryDB {
   }
 
   getIndex(): MemoryIndex {
-    const total =
-      this.db
-        .query<{ count: number }, []>("SELECT COUNT(*) as count FROM memories WHERE hidden = 0")
-        .get()?.count ?? 0;
-
-    const cats = this.db
-      .query<{ category: string | null; count: number }, []>(
-        "SELECT category, COUNT(*) as count FROM memories WHERE hidden = 0 GROUP BY category",
-      )
-      .all();
-
     const byCategory: Record<MemoryCategory, number> = {
       pref: 0,
       decision: 0,
       gotcha: 0,
       context: 0,
     };
-    for (const c of cats) {
-      if (c.category && c.category in byCategory) {
-        byCategory[c.category as MemoryCategory] = c.count;
-      }
-    }
-
-    const pinned =
-      this.db
-        .query<{ count: number }, []>(
-          "SELECT COUNT(*) as count FROM memories WHERE hidden = 0 AND pinned = 1",
-        )
-        .get()?.count ?? 0;
-
-    return {
+    const empty: MemoryIndex = {
       scope: this.scope,
-      total,
+      total: 0,
       byCategory,
-      pinned,
+      pinned: 0,
     };
+    try {
+      const total =
+        this.db
+          .query<{ count: number }, []>("SELECT COUNT(*) as count FROM memories WHERE hidden = 0")
+          .get()?.count ?? 0;
+
+      const cats = this.db
+        .query<{ category: string | null; count: number }, []>(
+          "SELECT category, COUNT(*) as count FROM memories WHERE hidden = 0 GROUP BY category",
+        )
+        .all();
+
+      for (const c of cats) {
+        if (c.category && c.category in byCategory) {
+          byCategory[c.category as MemoryCategory] = c.count;
+        }
+      }
+
+      const pinned =
+        this.db
+          .query<{ count: number }, []>(
+            "SELECT COUNT(*) as count FROM memories WHERE hidden = 0 AND pinned = 1",
+          )
+          .get()?.count ?? 0;
+
+      return {
+        scope: this.scope,
+        total,
+        byCategory,
+        pinned,
+      };
+    } catch (err) {
+      // Concurrent sf processes can briefly produce SQLITE_IOERR/SQLITE_BUSY
+      // while WAL state is in flux. Treat as empty index — prompt context will
+      // re-fill on the next render, and the UI must never crash because of it.
+      if (isDbClosedError(err)) throw err;
+      return empty;
+    }
   }
 
   close(): void {

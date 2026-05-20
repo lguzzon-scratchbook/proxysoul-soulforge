@@ -336,8 +336,16 @@ export class MemoryManager {
   }
 
   buildMemoryIndex(): string | null {
-    const projectIdx = this.projectDb.getIndex();
-    const globalIdx = this.globalDb.getIndex();
+    let projectIdx;
+    let globalIdx;
+    try {
+      projectIdx = this.projectDb.getIndex();
+      globalIdx = this.globalDb.getIndex();
+    } catch {
+      // Concurrent sf processes can transiently fail SQLite reads.
+      // Skip the index for this prompt rather than crash the render.
+      return null;
+    }
     if (projectIdx.total === 0 && globalIdx.total === 0) return null;
 
     const fmt = (label: string, idx: typeof projectIdx): string | null => {
