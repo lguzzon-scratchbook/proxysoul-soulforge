@@ -26,6 +26,7 @@ import {
   gitUnstage,
   run,
 } from "../git/status.js";
+import { memoryHintComposite } from "../memory/hints.js";
 import { truncateWithTee } from "./tee.js";
 
 const cwd = process.cwd();
@@ -206,6 +207,34 @@ export const gitTool = {
 
     if (claimWarning && result.success) {
       result = { ...result, output: `${claimWarning}\n\n${result.output}` };
+    }
+
+    // Memory hints — additive tail. Never throws, never blocks the result.
+    if (result.success) {
+      try {
+        let hint = "";
+        if (args.action === "diff" || args.action === "show") {
+          const paths = extractDiffPaths(result.output);
+          hint = memoryHintComposite({ paths, topics: ["git", args.action] });
+        } else if (args.action === "status") {
+          hint = memoryHintComposite({ topics: ["git", "commit", "status"] });
+        } else if (args.action === "commit") {
+          hint = memoryHintComposite({
+            topics: ["git", "commit", "conventional-commits"],
+          });
+        } else if (
+          args.action === "log" ||
+          args.action === "blame" ||
+          args.action === "push" ||
+          args.action === "pull" ||
+          args.action === "rebase" ||
+          args.action === "cherry_pick" ||
+          args.action === "reset"
+        ) {
+          hint = memoryHintComposite({ topics: ["git", args.action] });
+        }
+        if (hint) result = { ...result, output: `${result.output}${hint}` };
+      } catch {}
     }
 
     if (args.action === "commit" && result.success && tabId) {
@@ -465,4 +494,13 @@ async function execBlame(file?: string, startLine?: number, endLine?: number): P
     output: await capGitOutput(result.output, "blame"),
     error: result.ok ? undefined : "blame failed",
   };
+}
+function extractDiffPaths(diff: string, max = 10): string[] {
+  const paths = new Set<string>();
+  const re = /^diff --git a\/(\S+) b\/(\S+)/gm;
+  for (const m of diff.matchAll(re)) {
+    if (m[2]) paths.add(m[2]);
+    if (paths.size >= max) break;
+  }
+  return [...paths];
 }

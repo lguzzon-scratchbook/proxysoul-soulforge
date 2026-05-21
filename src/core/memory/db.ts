@@ -1163,6 +1163,50 @@ export class MemoryDB {
       summary: summaryById.get(s.id) ?? "",
     }));
   }
+
+  findByTopics(topics: string[], limit = 50): string[] {
+    if (topics.length === 0) return [];
+    const placeholders = topics.map(() => "?").join(",");
+    const rows = this.db
+      .query<{ id: string }, string[]>(
+        `SELECT DISTINCT m.id
+       FROM memories m, json_each(m.topics) je
+       WHERE je.value IN (${placeholders}) AND m.hidden = 0
+       ORDER BY m.last_used_at DESC
+       LIMIT ${limit}`,
+      )
+      .all(...topics);
+    return rows.map((r) => r.id);
+  }
+
+  topRecallFor(
+    opts: { paths?: string[]; topics?: string[]; query?: string },
+    limit = 1,
+  ): Array<{ id: string; summary: string; pinned: boolean }> {
+    const ids = new Set<string>();
+    if (opts.paths && opts.paths.length > 0) {
+      for (const id of this.findByPaths(opts.paths, 50)) ids.add(id);
+    }
+    if (opts.topics && opts.topics.length > 0) {
+      for (const id of this.findByTopics(opts.topics, 50)) ids.add(id);
+    }
+    if (opts.query && opts.query.trim().length > 0) {
+      for (const hit of this.searchUnicode(opts.query, 25)) ids.add(hit.id);
+      for (const hit of this.searchTrigram(opts.query, 25)) ids.add(hit.id);
+    }
+    if (ids.size === 0) return [];
+    const placeholders = [...ids].map(() => "?").join(",");
+    const rows = this.db
+      .query<{ id: string; summary: string; pinned: number }, string[]>(
+        `SELECT id, summary, pinned
+       FROM memories
+       WHERE id IN (${placeholders}) AND hidden = 0
+       ORDER BY pinned DESC, last_used_at DESC, use_count DESC
+       LIMIT ${limit}`,
+      )
+      .all(...[...ids]);
+    return rows.map((r) => ({ id: r.id, summary: r.summary, pinned: r.pinned === 1 }));
+  }
 }
 
 function normalize(s: string): string {

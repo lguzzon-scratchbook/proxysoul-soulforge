@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import type { ToolResult } from "../../types/index.js";
 import { analyzeFile } from "../analysis/complexity.js";
 import { markToolWrite, reloadBuffer } from "../editor/instance.js";
+import { memoryHintComposite } from "../memory/hints.js";
 import { isForbidden } from "../security/forbidden.js";
 import { displayPath } from "../utils/path-display.js";
 import { buildRichEditError, fuzzyWhitespaceMatch } from "./edit-file.js";
@@ -235,6 +236,10 @@ export const multiEditTool = {
 
       const nudge = await consumeAstEditNudge(filePath);
       if (nudge) output += `\n${nudge}`;
+
+      const cwd = process.cwd();
+      const rel = filePath.startsWith(`${cwd}/`) ? filePath.slice(cwd.length + 1) : filePath;
+      output += memoryHintComposite({ paths: [rel] });
 
       return { success: true, output };
     } catch (err: unknown) {

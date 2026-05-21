@@ -3,6 +3,7 @@ import { dirname, resolve } from "node:path";
 import type { ToolResult } from "../../types";
 import { analyzeFile } from "../analysis/complexity";
 import { markToolWrite, reloadBuffer } from "../editor/instance";
+import { memoryHintComposite } from "../memory/hints.js";
 import { isForbidden } from "../security/forbidden.js";
 import { displayPath } from "../utils/path-display.js";
 import { pushEdit } from "./edit-stack.js";
@@ -196,6 +197,8 @@ async function applyEdit(
   const nudge = await consumeAstEditNudge(filePath);
   if (nudge) output += `\n${nudge}`;
 
+  output += memoryHintComposite({ paths: [toRelEditPath(filePath)] });
+
   return { success: true, output };
 }
 
@@ -253,6 +256,7 @@ export const editFileTool = {
         if (dirCreated) out += ` [directory created: ${dir}]`;
         if (openedInEditor) out += " → opened in editor";
         out = await appendCloneHints(filePath, out);
+        out += memoryHintComposite({ paths: [toRelEditPath(filePath)] });
         return { success: true, output: out };
       }
 
@@ -391,3 +395,7 @@ export const editFileTool = {
     }
   },
 };
+function toRelEditPath(abs: string): string {
+  const cwd = process.cwd();
+  return abs.startsWith(`${cwd}/`) ? abs.slice(cwd.length + 1) : abs;
+}

@@ -12,7 +12,7 @@ import { setIntelligenceClient } from "../intelligence/instance.js";
 import type { SymbolForSummary } from "../intelligence/repo-map.js";
 import { resolveModel } from "../llm/provider.js";
 import { EPHEMERAL_CACHE, supportsTemperature } from "../llm/provider-options.js";
-import { setMemoryHintProvider } from "../memory/hints.js";
+import { resetSurfacedHints, setMemoryHintProvider } from "../memory/hints.js";
 import { MemoryManager } from "../memory/manager.js";
 import { MemoryRecall } from "../memory/recall.js";
 import { describeRecallSignals, MEMORY_RECALL_ACK } from "../memory/types.js";
@@ -563,6 +563,7 @@ export class ContextManager {
   resetConversationTracking(): void {
     this.editedFiles.clear();
     this.surfacedMemoryIds.clear();
+    resetSurfacedHints();
     this.recallCache = null;
     this.mentionedFiles.clear();
 
@@ -588,6 +589,7 @@ export class ContextManager {
    */
   resetForCompaction(): void {
     this.recallCache = null;
+    resetSurfacedHints();
     if (this.repoMapCache) this.repoMapCache.at = 0;
     this.repoMapGeneration++;
     this.soulMapDiffChangedFiles.clear();

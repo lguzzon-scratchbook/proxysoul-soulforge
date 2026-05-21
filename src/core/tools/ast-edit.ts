@@ -5,6 +5,7 @@ import { analyzeFile } from "../analysis/complexity.js";
 import { markToolWrite, reloadBuffer } from "../editor/instance.js";
 import type { SurgicalOperation } from "../intelligence/backends/ts-morph.js";
 import { TsMorphBackend } from "../intelligence/backends/ts-morph.js";
+import { memoryHintComposite } from "../memory/hints.js";
 import { isForbidden } from "../security/forbidden.js";
 import { displayPath } from "../utils/path-display.js";
 import { formatMetricDelta } from "./edit-file.js";
@@ -188,6 +189,11 @@ export const astEditTool = {
           if (deltas.length > 0) output += ` (${deltas.join(", ")})`;
           output = await appendAutoFormatResult(filePath, content, output, args.tabId);
           output = await appendPostEditDiagnostics(diagsPromise, filePath, output);
+          const cwdHint = process.cwd();
+          const relHint = filePath.startsWith(`${cwdHint}/`)
+            ? filePath.slice(cwdHint.length + 1)
+            : filePath;
+          output += memoryHintComposite({ paths: [relHint] });
           return { success: true, output };
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -272,6 +278,12 @@ export const astEditTool = {
 
       // Consume any pending nudge (no-op after first fire per session)
       await consumeAstEditNudge(filePath);
+
+      const cwdHint = process.cwd();
+      const relHint = filePath.startsWith(`${cwdHint}/`)
+        ? filePath.slice(cwdHint.length + 1)
+        : filePath;
+      output += memoryHintComposite({ paths: [relHint] });
 
       return { success: true, output };
     } catch (err: unknown) {
