@@ -91,6 +91,17 @@ export class ContextManager {
   private soulMapSnapshotPaths = new Set<string>();
   /** Pre-rendered diff blocks for changed files. Eagerly populated in onFileChanged via getFileDiffBlock. */
   private soulMapDiffBlocks = new Map<string, { radiusTag: string; symbolBlock: string }>();
+  /**
+   * Frozen soul-map snapshot — immutable bytes for the lifetime of a TTL window.
+   * Mutations land in soulMapDiffChangedFiles as appended deltas, never modify the snapshot.
+   * Refreshed on: TTL expiry, compaction, /clear, session restore, delta budget overflow.
+   */
+  private soulMapSnapshot: {
+    content: string;
+    at: number;
+    hash: string;
+    paths: Set<string>;
+  } | null = null;
   private taskRouter: TaskRouter | undefined;
   private semanticSummaryLimit = 500;
   private semanticAutoRegen = false;
@@ -103,6 +114,10 @@ export class ContextManager {
   private projectInstructions = "";
   private projectInstructionsVersion = 0;
   private static readonly REPO_MAP_TTL = 5_000; // 5s — covers getContextBreakdown + buildSystemPrompt in same prompt
+  /** Snapshot lifetime — soul-map content frozen for this long. Refresh only via TTL expiry, compaction, or explicit reset. */
+  private static readonly SOUL_MAP_SNAPSHOT_TTL = 10 * 60_000; // 10 min
+  /** Hard cap on accumulated soul-map-update bytes before forcing a snapshot refresh. */
+  private static readonly SOUL_MAP_DELTA_MAX_BYTES = 16_000;
 
   private static readonly FILE_TREE_TTL = 30_000; // 30s
   private static readonly PROJECT_INFO_TTL = 300_000; // 5min
@@ -489,6 +504,8 @@ export class ContextManager {
     const rel = absPath.startsWith(`${this.cwd}/`) ? absPath.slice(this.cwd.length + 1) : absPath;
     this.soulMapDiffChangedFiles.set(rel, ++this.soulMapDiffSeq);
     this.pendingSoulMapDiff = null; // invalidate so buildSoulMapDiff() rebuilds with new file
+    // Mark the render-state cache stale so warmRepoMapCache picks up fresh symbols.
+    // The frozen soulMapSnapshot is NOT touched — file edits append to deltas only.
     if (this.repoMapCache) this.repoMapCache.at = 0;
 
     // Eagerly fetch rich diff block (blast radius + symbols with signatures).
@@ -582,6 +599,7 @@ export class ContextManager {
     this.soulMapDiffBlocks.clear();
     this.pendingSoulMapDiff = null;
     this.lastEmittedSoulMapDiff = null;
+    this.soulMapSnapshot = null; // force rebuild on next snapshot request
     this.warmRepoMapCache();
   }
 
@@ -602,6 +620,9 @@ export class ContextManager {
     this.soulMapDiffBlocks.clear();
     this.pendingSoulMapDiff = null;
     this.lastEmittedSoulMapDiff = null;
+    // Compaction crosses a hard prefix boundary — drop the frozen snapshot so
+    // the next prompt rebuilds with current DB state and a fresh cache key.
+    this.soulMapSnapshot = null;
     this.warmRepoMapCache();
   }
 
@@ -705,6 +726,7 @@ export class ContextManager {
     if (this.repoMapEnabled === enabled) return;
     this.repoMapEnabled = enabled;
     this.repoMapCache = null;
+    this.soulMapSnapshot = null;
 
     if (!enabled) {
       // Disconnect callbacks so any in-flight scan can't touch the UI or ready state
@@ -1107,6 +1129,7 @@ export class ContextManager {
   async refreshRepoMap(): Promise<void> {
     this.repoMapReady = false;
     this.repoMapCache = null;
+    this.soulMapSnapshot = null;
     this.syncRepoMapStore("scanning");
     useRepoMapStore.getState().setScanError("");
     await this.repoMap.scan().catch((err: unknown) => this.handleScanError(err));
@@ -1116,6 +1139,7 @@ export class ContextManager {
     await this.repoMap.clear();
     this.repoMapReady = false;
     this.repoMapCache = null;
+    this.soulMapSnapshot = null;
     // Zero all counters immediately — worker stats cache is stale after clear
     const store = useRepoMapStore.getState();
     store.setStats(0, 0, 0, 0);
@@ -1299,36 +1323,58 @@ export class ContextManager {
     ];
   }
 
+  /**
+   * Build (or reuse) the frozen soul-map snapshot. The snapshot is byte-stable
+   * for SOUL_MAP_SNAPSHOT_TTL — same bytes returned every call until expiry,
+   * compaction, or explicit reset. Mutations land in the delta channel instead.
+   *
+   * @param clearDiffTracker — when true (default), forces a fresh snapshot AND
+   *   clears accumulated deltas. Used at session start and on explicit refresh.
+   *   When false, returns the cached snapshot if still within TTL.
+   */
   buildSoulMapSnapshot(clearDiffTracker = true): string | null {
     if (!this.isRepoMapReady()) return null;
+
+    const now = Date.now();
+    const ttlExpired =
+      !this.soulMapSnapshot ||
+      now - this.soulMapSnapshot.at >= ContextManager.SOUL_MAP_SNAPSHOT_TTL;
+    const shouldRefresh = clearDiffTracker || ttlExpired;
+
+    if (!shouldRefresh && this.soulMapSnapshot) {
+      return this.soulMapSnapshot.content;
+    }
+
     const rendered = this.renderRepoMap();
     if (!rendered) return null;
     const isMinimal = this.contextWindowTokens <= 32_000;
     const treeLimit = this.repoMapTokenBudget ? Math.ceil(this.repoMapTokenBudget / 100) : 60;
     const dirTree = buildDirectoryTree(this.cwd, treeLimit);
+    const content = buildSoulMapContent(rendered, isMinimal, dirTree);
 
-    // soulMapSnapshotPaths is populated by warmRepoMapCache() from render()'s
-    // lastRenderedPaths — no string parsing needed.
+    // Stamp the snapshot. paths come from the underlying render() — the diff
+    // channel uses them to distinguish [NEW FILE] tags from modifications.
+    this.soulMapSnapshot = {
+      content,
+      at: now,
+      hash: hashString(content),
+      paths: new Set(this.soulMapSnapshotPaths),
+    };
 
-    if (clearDiffTracker) {
-      this.soulMapDiffChangedFiles.clear();
-      this.soulMapDiffSeq = 0;
-      this.soulMapDiffBlocks.clear();
-      this.pendingSoulMapDiff = null;
-      this.lastEmittedSoulMapDiff = null;
-    }
-    return buildSoulMapContent(rendered, isMinimal, dirTree);
+    // Refresh always drops accumulated deltas — they're folded into the new snapshot.
+    this.soulMapDiffChangedFiles.clear();
+    this.soulMapDiffSeq = 0;
+    this.soulMapDiffBlocks.clear();
+    this.pendingSoulMapDiff = null;
+    this.lastEmittedSoulMapDiff = null;
+
+    return content;
   }
 
   private pendingSoulMapDiff: string | null = null;
   /** The diff string that was last emitted — used to detect changes and avoid re-emitting identical diffs. */
   private lastEmittedSoulMapDiff: string | null = null;
 
-  /**
-   * Build a cumulative soul map diff covering ALL files changed since the snapshot.
-   * Returns null if nothing changed, or if the diff is identical to the last emitted one
-   * (avoids duplicate content across injects — coalescing).
-   */
   buildSoulMapDiff(): string | null {
     if (!this.isRepoMapReady()) return null;
 
@@ -1341,9 +1387,13 @@ export class ContextManager {
 
     // Rebuild the diff string if the file set changed since last build
     if (!this.pendingSoulMapDiff) {
-      // Sort by most recent edit so the 15-file cap shows latest changes, not earliest
+      // Deterministic ordering: edit recency DESC, path ASC for ties.
+      // Byte-stable across runs so caching layers can hash-match.
       const changed = [...this.soulMapDiffChangedFiles.entries()]
-        .sort((a, b) => b[1] - a[1])
+        .sort((a, b) => {
+          const recency = b[1] - a[1];
+          return recency !== 0 ? recency : a[0].localeCompare(b[0]);
+        })
         .map(([path]) => path);
       const hasSnapshot = this.soulMapSnapshotPaths.size > 0;
       const lines = ["<soul_map_update>"];
@@ -1384,6 +1434,24 @@ export class ContextManager {
     // Skip if identical to what was already injected in a previous step
     if (this.pendingSoulMapDiff === this.lastEmittedSoulMapDiff) return null;
     return this.pendingSoulMapDiff;
+  }
+
+  /**
+   * Returns true when accumulated deltas have grown past the byte budget OR
+   * when the snapshot has aged past its TTL. Callers (forge prepareStep,
+   * compaction) use this to force a fresh snapshot before the delta channel
+   * becomes a worse signal than a rebuild.
+   */
+  needsSnapshotRefresh(): boolean {
+    if (!this.soulMapSnapshot) return true;
+    if (Date.now() - this.soulMapSnapshot.at >= ContextManager.SOUL_MAP_SNAPSHOT_TTL) return true;
+    const deltaBytes = this.pendingSoulMapDiff?.length ?? 0;
+    return deltaBytes > ContextManager.SOUL_MAP_DELTA_MAX_BYTES;
+  }
+
+  /** Telemetry: hash of the current frozen snapshot, or null if none. */
+  getSoulMapSnapshotHash(): string | null {
+    return this.soulMapSnapshot?.hash ?? null;
   }
 
   commitSoulMapDiff(): void {
@@ -1664,3 +1732,13 @@ export class ContextManager {
 }
 
 export { extractConversationTerms } from "./conversation-terms.js";
+
+function hashString(s: string): string {
+  // FNV-1a 32-bit — fast, deterministic, sufficient for cache-hit telemetry
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
