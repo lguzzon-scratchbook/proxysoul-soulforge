@@ -25,13 +25,31 @@ export interface PresetsInitReport {
   fromCli: number;
 }
 
+const VALID_SPEC = /^(https?:\/\/|\.\/|\.\.\/|\/|~\/)|^[a-zA-Z0-9][a-zA-Z0-9._/-]{1,}$/;
+
+function isValidPresetSpec(spec: string): boolean {
+  if (spec.length < 2) return false;
+  return VALID_SPEC.test(spec);
+}
+
 function readPresetSpecs(file: string): string[] {
   if (!existsSync(file)) return [];
   try {
     const cfg = JSON.parse(readFileSync(file, "utf-8")) as { presets?: unknown };
-    if (Array.isArray(cfg.presets)) {
-      return cfg.presets.filter((s): s is string => typeof s === "string" && s.length > 0);
+    if (!Array.isArray(cfg.presets)) return [];
+    const out: string[] = [];
+    for (const s of cfg.presets) {
+      if (typeof s !== "string" || s.length === 0) continue;
+      if (!isValidPresetSpec(s)) {
+        logBackgroundError(
+          "presets",
+          `Ignoring invalid preset spec "${s}" in ${file} — expected registry id, path, or URL`,
+        );
+        continue;
+      }
+      out.push(s);
     }
+    return out;
   } catch {}
   return [];
 }
