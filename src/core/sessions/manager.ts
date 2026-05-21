@@ -616,4 +616,99 @@ export class SessionManager {
       await rename(coreTmp, corePath);
     }
   }
+
+  /**
+   * Drop any tabs from the on-disk session whose ids are NOT in `keepIds`.
+   * Used at exit/new-session to garbage-collect tabs the user has closed,
+   * preventing the saved tab list from growing unbounded across restarts.
+   * Best-effort: missing dir or parse errors are silent.
+   */
+  async pruneTabsNotIn(sessionId: string, keepIds: Set<string>): Promise<void> {
+    const sessionDir = join(this.dir, sessionId);
+    const metaPath = join(sessionDir, "meta.json");
+    if (!existsSync(metaPath)) return;
+    const prev = this.saveChains.get(sessionId) ?? Promise.resolve();
+    const next = prev
+      .catch(() => {})
+      .then(async () => {
+        let meta: SessionMeta;
+        try {
+          meta = JSON.parse(readFileSync(metaPath, "utf-8")) as SessionMeta;
+        } catch {
+          return;
+        }
+        const keptTabs = meta.tabs.filter((t) => keepIds.has(t.id));
+        if (keptTabs.length === meta.tabs.length) return;
+        const jsonlPath = join(sessionDir, "messages.jsonl");
+        const allMessages: ChatMessage[] = [];
+        if (existsSync(jsonlPath)) {
+          const content = readFileSync(jsonlPath, "utf-8").trim();
+          if (content) {
+            for (const line of content.split("\n")) {
+              if (!line.trim()) continue;
+              try {
+                allMessages.push(JSON.parse(line) as ChatMessage);
+              } catch {
+                break;
+              }
+            }
+          }
+        }
+        const rebuiltAll: ChatMessage[] = [];
+        const updatedTabs: TabMeta[] = keptTabs.map((t) => {
+          const { startLine, endLine } = t.messageRange;
+          const slice = allMessages.slice(startLine, endLine);
+          const newStart = rebuiltAll.length;
+          for (const m of slice) rebuiltAll.push(m);
+          return { ...t, messageRange: { startLine: newStart, endLine: rebuiltAll.length } };
+        });
+        const updatedMeta: SessionMeta = { ...meta, tabs: updatedTabs, updatedAt: Date.now() };
+        const corePath = join(sessionDir, "core.json");
+        let updatedCore: Record<string, import("ai").ModelMessage[]> | null = null;
+        if (existsSync(corePath)) {
+          try {
+            const coreData = JSON.parse(readFileSync(corePath, "utf-8")) as Record<
+              string,
+              import("ai").ModelMessage[]
+            >;
+            updatedCore = {};
+            for (const id of keepIds) {
+              if (coreData[id]) updatedCore[id] = coreData[id];
+            }
+          } catch {
+            updatedCore = null;
+          }
+        }
+        const lines = rebuiltAll.map((m) => JSON.stringify(m)).join("\n");
+        const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const metaTmp = `${metaPath}.${suffix}.tmp`;
+        const jsonlTmp = `${jsonlPath}.${suffix}.tmp`;
+        await writeFile(metaTmp, JSON.stringify(updatedMeta, null, 2), {
+          encoding: "utf-8",
+          mode: 0o600,
+        });
+        await writeFile(jsonlTmp, lines ? `${lines}\n` : "", {
+          encoding: "utf-8",
+          mode: 0o600,
+        });
+        await rename(jsonlTmp, jsonlPath);
+        await rename(metaTmp, metaPath);
+        if (updatedCore) {
+          const coreTmp = `${corePath}.${suffix}.tmp`;
+          await writeFile(coreTmp, JSON.stringify(updatedCore), {
+            encoding: "utf-8",
+            mode: 0o600,
+          });
+          await rename(coreTmp, corePath);
+        }
+      });
+    this.saveChains.set(sessionId, next);
+    try {
+      await next;
+    } finally {
+      if (this.saveChains.get(sessionId) === next) {
+        this.saveChains.delete(sessionId);
+      }
+    }
+  }
 }

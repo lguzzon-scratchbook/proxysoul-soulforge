@@ -28,7 +28,6 @@ import {
 import { notifyProviderSwitch } from "../core/llm/provider.js";
 import { disposeMCPManager, getMCPManager } from "../core/mcp/index.js";
 import { initForbidden } from "../core/security/forbidden.js";
-import { updateEmergencySnapshot } from "../core/sessions/emergency-save.js";
 import { SessionManager } from "../core/sessions/manager.js";
 import { getMissingRequired } from "../core/setup/prerequisites.js";
 import { suspendAndRun } from "../core/terminal/suspend.js";
@@ -44,7 +43,7 @@ import { getModeColor, getModeLabel } from "../hooks/useForgeMode.js";
 import { useGitStatus } from "../hooks/useGitStatus.js";
 import { useGlobalKeyboard } from "../hooks/useGlobalKeyboard.js";
 import { useNeovim } from "../hooks/useNeovim.js";
-import { buildSessionMeta } from "../hooks/useSessionBuilder.js";
+import { buildTabMeta } from "../hooks/useSessionBuilder.js";
 import { useTabs } from "../hooks/useTabs.js";
 import { useVersionCheck } from "../hooks/useVersionCheck.js";
 import { cleanupAndExit, restart, setExitSessionId } from "../index.js";
@@ -763,27 +762,58 @@ export function App({
 
       schedule(async () => {
         try {
+          const sid = getAppSessionId();
+          const liveTabs = tabMgrRef.current.tabs;
           const activeChat = tabMgrRef.current.getActiveChat();
-          const hasUserMessages = activeChat?.messages.some(
-            (m: ChatMessage) => m.role === "user" || m.role === "assistant",
-          );
-          const snapshot = workspaceSnapshotRef.current?.();
-          if (snapshot && hasUserMessages && activeChat) {
-            const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
-              sessionId: getAppSessionId(),
-              title: activeChat.customTitle ?? SessionManager.deriveTitle(activeChat.messages),
-              customTitle: activeChat.customTitle,
-              cwd,
-              snapshot,
-              currentTabMessages: activeChat.messages.filter(
+          const activeTabId = tabMgrRef.current.activeTabId;
+          const anyContent = liveTabs.some((t) => {
+            const c = tabMgrRef.current.getChat(t.id);
+            return c?.messages.some(
+              (m: ChatMessage) => m.role === "user" || m.role === "assistant",
+            );
+          });
+          if (anyContent) {
+            // Per-tab save: each registered chat writes its own slice via
+            // saveTab, which splice-merges into the shared session dir
+            // without clobbering siblings. Saves are serialized per-session
+            // inside saveTab so the loop is safe.
+            const liveIds = new Set(liveTabs.map((t) => t.id));
+            const fallbackTitle =
+              activeChat?.customTitle ?? SessionManager.deriveTitle(activeChat?.messages ?? []);
+            for (const tab of liveTabs) {
+              const chat = tabMgrRef.current.getChat(tab.id);
+              if (!chat) continue;
+              const filtered = chat.messages.filter(
                 (m: ChatMessage) => m.role !== "system" || m.showInChat,
-              ),
-              currentTabCoreMessages: activeChat.coreMessages,
-            });
-            updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
-            await sessionManager.saveSession(meta, tabMessages, tabCoreMessages);
-            setExitSessionId(meta.id);
-            savedSessionIdRef.current = meta.id;
+              );
+              const { tabMeta } = buildTabMeta({
+                tabId: tab.id,
+                tabLabel: tab.label,
+                activeModel: chat.activeModel,
+                sessionId: sid,
+                planMode: chat.planMode,
+                planRequest: chat.planRequest,
+                coAuthorCommits: chat.coAuthorCommits,
+                forgeMode: chat.forgeMode,
+                tokenUsage: chat.tokenUsage,
+                messages: filtered,
+                coreMessages: chat.coreMessages,
+              });
+              await sessionManager.saveTab(sid, tabMeta, filtered, chat.coreMessages, {
+                title: fallbackTitle,
+                customTitle: activeChat?.customTitle ?? null,
+                cwd,
+                forgeMode: activeChat?.forgeMode ?? "default",
+                activeTabId,
+              });
+            }
+            // Prune any on-disk tabs not in the live set (e.g. tabs closed
+            // this session). Best-effort — failures are non-fatal.
+            try {
+              await sessionManager.pruneTabsNotIn(sid, liveIds);
+            } catch {}
+            setExitSessionId(sid);
+            savedSessionIdRef.current = sid;
           }
         } catch (err) {
           logBackgroundError(
@@ -827,6 +857,9 @@ export function App({
 
     const data = sessionManager.loadSession(fullId);
     if (data) {
+      // Adopt loaded session id BEFORE restoreFromMeta so freshly mounted
+      // TabInstances see the right app session id on first render.
+      setAppSessionId(data.meta.id);
       tabMgr.restoreFromMeta(
         data.meta.tabs,
         data.meta.activeTabId,
@@ -835,9 +868,6 @@ export function App({
       );
       setForgeModeHeader(data.meta.forgeMode);
       setExitSessionId(data.meta.id);
-      // Adopt the loaded session id as the app's id so all subsequent saves
-      // target this dir instead of forking a new one.
-      setAppSessionId(data.meta.id);
       // Restore checkpoint git tags from saved session (synchronous — must run
       // before React renders TabInstance, which triggers syncFromMessages)
       for (const tab of data.meta.tabs) {
@@ -1190,28 +1220,48 @@ export function App({
       (m: ChatMessage) => m.role === "user" || m.role === "assistant",
     );
     if (hasContent && activeChat) {
-      const snapshot = workspaceSnapshotRef.current?.();
-      if (snapshot) {
-        try {
-          const { meta, tabMessages, tabCoreMessages } = buildSessionMeta({
-            sessionId: getAppSessionId(),
-            title: activeChat.customTitle ?? SessionManager.deriveTitle(activeChat.messages),
-            customTitle: activeChat.customTitle,
-            cwd,
-            snapshot,
-            currentTabMessages: activeChat.messages.filter(
-              (m: ChatMessage) => m.role !== "system" || m.showInChat,
-            ),
-            currentTabCoreMessages: activeChat.coreMessages,
-          });
-          updateEmergencySnapshot(sessionManager, meta, tabMessages, tabCoreMessages);
-          await sessionManager.saveSession(meta, tabMessages, tabCoreMessages);
-        } catch (err) {
-          logBackgroundError(
-            "new-session",
-            `session save failed: ${err instanceof Error ? err.message : String(err)}`,
+      try {
+        const sid = getAppSessionId();
+        const liveTabs = tabMgrRef.current?.tabs ?? [];
+        const activeTabId = tabMgrRef.current?.activeTabId ?? "";
+        const liveIds = new Set(liveTabs.map((t) => t.id));
+        const fallbackTitle =
+          activeChat.customTitle ?? SessionManager.deriveTitle(activeChat.messages);
+        for (const tab of liveTabs) {
+          const chat = tabMgrRef.current?.getChat(tab.id);
+          if (!chat) continue;
+          const filtered = chat.messages.filter(
+            (m: ChatMessage) => m.role !== "system" || m.showInChat,
           );
+          const { tabMeta } = buildTabMeta({
+            tabId: tab.id,
+            tabLabel: tab.label,
+            activeModel: chat.activeModel,
+            sessionId: sid,
+            planMode: chat.planMode,
+            planRequest: chat.planRequest,
+            coAuthorCommits: chat.coAuthorCommits,
+            forgeMode: chat.forgeMode,
+            tokenUsage: chat.tokenUsage,
+            messages: filtered,
+            coreMessages: chat.coreMessages,
+          });
+          await sessionManager.saveTab(sid, tabMeta, filtered, chat.coreMessages, {
+            title: fallbackTitle,
+            customTitle: activeChat.customTitle ?? null,
+            cwd,
+            forgeMode: activeChat.forgeMode,
+            activeTabId,
+          });
         }
+        try {
+          await sessionManager.pruneTabsNotIn(sid, liveIds);
+        } catch {}
+      } catch (err) {
+        logBackgroundError(
+          "new-session",
+          `session save failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
     // Mark all tabs for skip-cleanup so git tags survive the restart
@@ -1650,9 +1700,71 @@ export function App({
         visible={modalSessionPicker}
         cwd={cwd}
         onClose={getCloser("sessionPicker")}
-        onRestore={(sessionId) => {
+        onRestore={async (sessionId) => {
+          // 1. Snapshot the current session before swapping so we don't lose
+          //    the user's in-progress work. Use per-tab saveTab so each tab's
+          //    latest messages land in the right dir.
+          try {
+            const prevSid = getAppSessionId();
+            if (prevSid !== sessionId) {
+              const liveTabs = tabMgrRef.current?.tabs ?? [];
+              const activeTabId = tabMgrRef.current?.activeTabId ?? "";
+              const activeChat = tabMgrRef.current?.getActiveChat();
+              const fallbackTitle =
+                activeChat?.customTitle ?? SessionManager.deriveTitle(activeChat?.messages ?? []);
+              const liveIds = new Set(liveTabs.map((t) => t.id));
+              let savedAny = false;
+              for (const tab of liveTabs) {
+                const chat = tabMgrRef.current?.getChat(tab.id);
+                if (!chat) continue;
+                const filtered = chat.messages.filter(
+                  (m: ChatMessage) => m.role !== "system" || m.showInChat,
+                );
+                const hasContent = filtered.some(
+                  (m) => m.role === "user" || m.role === "assistant",
+                );
+                if (!hasContent) continue;
+                savedAny = true;
+                const { tabMeta } = buildTabMeta({
+                  tabId: tab.id,
+                  tabLabel: tab.label,
+                  activeModel: chat.activeModel,
+                  sessionId: prevSid,
+                  planMode: chat.planMode,
+                  planRequest: chat.planRequest,
+                  coAuthorCommits: chat.coAuthorCommits,
+                  forgeMode: chat.forgeMode,
+                  tokenUsage: chat.tokenUsage,
+                  messages: filtered,
+                  coreMessages: chat.coreMessages,
+                });
+                await sessionManager.saveTab(prevSid, tabMeta, filtered, chat.coreMessages, {
+                  title: fallbackTitle,
+                  customTitle: activeChat?.customTitle ?? null,
+                  cwd,
+                  forgeMode: activeChat?.forgeMode ?? "default",
+                  activeTabId,
+                });
+              }
+              if (savedAny) {
+                try {
+                  await sessionManager.pruneTabsNotIn(prevSid, liveIds);
+                } catch {}
+              }
+            }
+          } catch (err) {
+            logBackgroundError(
+              "session-switch",
+              `pre-switch save failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
           const data = sessionManager.loadSession(sessionId);
           if (data) {
+            // 2. Adopt the loaded session id BEFORE restoreFromMeta so freshly
+            //    mounted TabInstances see the right app session id on first
+            //    render. Avoids the multi-tab loop where each tab tries to
+            //    claim its own initialState.sessionId during mount.
+            setAppSessionId(data.meta.id);
             tabMgr.restoreFromMeta(
               data.meta.tabs,
               data.meta.activeTabId,
@@ -1661,8 +1773,6 @@ export function App({
             );
             setForgeModeHeader(data.meta.forgeMode);
             setExitSessionId(data.meta.id);
-            // Adopt the loaded session id — all future autosaves target this dir.
-            setAppSessionId(data.meta.id);
             // Restore checkpoint git tags from saved session (stashed as _pendingTags
             // so syncFromMessages picks them up when it rebuilds checkpoints)
             for (const tab of data.meta.tabs) {

@@ -540,10 +540,15 @@ export function useChat({
   // from the current app id, adopt it (covers the resume path where the first
   // tab to mount carries the on-disk session). All saves target this id.
   const sessionIdRef = useRef<string>(initialState?.sessionId ?? getAppSessionId());
-  if (initialState?.sessionId && initialState.sessionId !== getAppSessionId()) {
-    setAppSessionId(initialState.sessionId);
-    sessionIdRef.current = initialState.sessionId;
-  }
+  // Adopt restored session id once on mount — must NOT run during render
+  // (would loop: zustand setter notifies subscribers → re-render → setState again).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only adoption
+  useEffect(() => {
+    if (initialState?.sessionId && initialState.sessionId !== getAppSessionId()) {
+      setAppSessionId(initialState.sessionId);
+      sessionIdRef.current = initialState.sessionId;
+    }
+  }, []);
   useEffect(() => {
     const unsub = useSessionStore.subscribe((s) => {
       sessionIdRef.current = s.appSessionId;
@@ -2022,16 +2027,33 @@ export function useChat({
                 verify: verifyModelId ? resolveModel(verifyModelId) : undefined,
               }
             : undefined;
-          const webSearchModel = webSearchModelId ? resolveModel(webSearchModelId) : undefined;
-          webSearchModelLabelRef.current = webSearchModelId
+          let webSearchModel: ReturnType<typeof resolveModel> | undefined;
+          try {
+            webSearchModel = webSearchModelId ? resolveModel(webSearchModelId) : undefined;
+          } catch (err) {
+            logBackgroundError(
+              "web-search-resolve",
+              `webSearch model "${webSearchModelId}" failed to resolve: ${err instanceof Error ? err.message : String(err)}`,
+            );
+            webSearchModel = undefined;
+          }
+          webSearchModelLabelRef.current = webSearchModel
             ? (() => {
-                const id = webSearchModelId;
+                const id = webSearchModelId as string;
                 const slash = id.indexOf("/");
                 const providerId = slash > 0 ? id.slice(0, slash) : "";
                 const short = getShortModelLabel(id);
                 return providerId ? `${providerId}/${short}` : short;
               })()
             : null;
+          logBackgroundError(
+            "router:web-search",
+            webSearchModel
+              ? `agent mode → ${webSearchModelId}`
+              : webSearchModelId
+                ? `agent disabled (resolve failed) → fallback to direct scraper`
+                : `agent disabled (no taskRouter.webSearch set) → fallback to direct scraper`,
+          );
 
           // Web access: when disabled, null out both approval AND model so the tool is inert
           const webSearchEnabled = effectiveConfig.webSearch !== false;

@@ -264,18 +264,30 @@ export function useTabs(): UseTabsReturn {
 
   const restoreFromMeta = useCallback(
     (
-      tabMetas: TabMeta[],
+      incomingMetas: TabMeta[],
       activeId: string,
       tabMessages: Map<string, ChatMessage[]>,
       tabCoreMessages?: Map<string, ModelMessage[]>,
     ) => {
-      if (tabMetas.length === 0) return;
+      if (incomingMetas.length === 0) return;
 
       // Abort any in-flight chats before replacing tabs
       for (const chat of chatRegistry.current.values()) {
         chat.abort();
       }
       chatRegistry.current.clear();
+
+      // Dedupe by id (defensive — corrupt meta could repeat ids) and cap at MAX_TABS.
+      // Saved sessions can have grown past the cap via prior bugs; truncate so the
+      // UI never shows more than the allowed tab count.
+      const seenIds = new Set<string>();
+      const tabMetas: TabMeta[] = [];
+      for (const tm of incomingMetas) {
+        if (seenIds.has(tm.id)) continue;
+        seenIds.add(tm.id);
+        tabMetas.push(tm);
+        if (tabMetas.length >= MAX_TABS) break;
+      }
 
       const restoredTabs: Tab[] = tabMetas.map((tm) => ({
         id: tm.id,
