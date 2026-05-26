@@ -75,25 +75,32 @@ export async function runAddonWizard(): Promise<void> {
       "  install or remove them later with `soulforge addon install|remove <name>`.",
   );
 
-  const picked = await p.multiselect({
-    message: "Install which addons? (space to toggle, enter to confirm)",
-    options: remaining.map((o) => ({
-      value: o.value,
-      label: o.label,
-      hint: o.hint,
-    })),
-    required: false,
-  });
+  // One yes/no per addon — clearer than multiselect (Enter alone on a
+  // multiselect submits an empty pick and silently skips everything).
+  const picked: AddonName[] = [];
+  for (const opt of remaining) {
+    const answer = await p.confirm({
+      message: `Install ${opt.label}? — ${opt.hint}`,
+      initialValue: false,
+    });
+    if (p.isCancel(answer)) {
+      // Ctrl+C / Esc — bail out of the wizard entirely, record we asked.
+      saveGlobalConfig({ addonsPromptShown: true });
+      p.outro("Cancelled — install later with `soulforge addon install <name>`");
+      return;
+    }
+    if (answer === true) picked.push(opt.value);
+  }
 
   // Always record that we asked, regardless of outcome — don't nag.
   saveGlobalConfig({ addonsPromptShown: true });
 
-  if (p.isCancel(picked) || !Array.isArray(picked) || picked.length === 0) {
+  if (picked.length === 0) {
     p.outro("Skipped — install later with `soulforge addon install <name>`");
     return;
   }
 
-  for (const name of picked as AddonName[]) {
+  for (const name of picked) {
     const spin = p.spinner();
     spin.start(`Installing ${name}…`);
     try {
