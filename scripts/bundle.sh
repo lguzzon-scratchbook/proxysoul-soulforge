@@ -155,11 +155,20 @@ else
   exit 1
 fi
 
-# Worker scripts — pre-bundled for compiled binary
+# Worker scripts — pre-bundled for compiled binary.
+# Use --outdir + --entry-naming because Bun may emit multiple chunks for
+# the intelligence worker (code-splitting via dynamic imports of ts-morph,
+# tree-sitter, etc.). --outfile only accepts a single output file.
 echo "    Bundling worker scripts..."
 mkdir -p "${DEPS_DIR}/workers"
-bun build src/core/workers/intelligence.worker.ts --outfile "${DEPS_DIR}/workers/intelligence.worker.js" --target=bun
-bun build src/core/workers/io.worker.ts --outfile "${DEPS_DIR}/workers/io.worker.js" --target=bun
+bun build src/core/workers/intelligence.worker.ts \
+  --outdir "${DEPS_DIR}/workers" \
+  --entry-naming "[name].[ext]" \
+  --target=bun
+bun build src/core/workers/io.worker.ts \
+  --outdir "${DEPS_DIR}/workers" \
+  --entry-naming "[name].[ext]" \
+  --target=bun
 
 # Tree-sitter WASM runtime + grammars + OpenTUI syntax assets
 echo "    Bundling tree-sitter assets..."

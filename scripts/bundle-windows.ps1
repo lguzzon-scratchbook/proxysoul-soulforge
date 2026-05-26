@@ -108,9 +108,19 @@ try {
         Write-Host "    WARN ghostty-opentui.node not present for $triplet (floating terminal disabled)"
     }
 
-    & bun build src/core/workers/intelligence.worker.ts --outfile (Join-Path $depsDir "workers/intelligence.worker.js") --target=bun
+    # Use --outdir + --entry-naming because Bun may emit multiple chunks for
+    # the intelligence worker (code-splitting via dynamic imports of ts-morph,
+    # tree-sitter, etc.). --outfile only accepts a single output file.
+    $workersDir = Join-Path $depsDir "workers"
+    & bun build src/core/workers/intelligence.worker.ts `
+        --outdir $workersDir `
+        --entry-naming "[name].[ext]" `
+        --target=bun
     if ($LASTEXITCODE -ne 0) { throw "intelligence worker bundle failed" }
-    & bun build src/core/workers/io.worker.ts --outfile (Join-Path $depsDir "workers/io.worker.js") --target=bun
+    & bun build src/core/workers/io.worker.ts `
+        --outdir $workersDir `
+        --entry-naming "[name].[ext]" `
+        --target=bun
     if ($LASTEXITCODE -ne 0) { throw "io worker bundle failed" }
     Write-Host "    OK workers"
 
