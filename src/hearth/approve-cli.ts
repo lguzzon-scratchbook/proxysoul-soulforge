@@ -18,8 +18,8 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, resolve as resolvePath } from "node:path";
+import { configDir, matchGlob, expandHome as platformExpandHome } from "../core/platform/index.js";
 import { socketRequest } from "./protocol.js";
 import {
   type DenyReadRequest,
@@ -50,32 +50,23 @@ const BUILTIN_DENYLIST = [
   "**/id_ed25519*",
   "~/.ssh/**",
   "~/.aws/credentials",
-  "~/.soulforge/secrets.*",
-  "~/.soulforge/hearth.sock",
+  `${configDir()}/secrets.*`,
+  `${configDir()}/hearth.sock`,
 ];
 
 function expandHome(p: string): string {
-  return p.startsWith("~/") ? join(homedir(), p.slice(2)) : p;
+  return platformExpandHome(p);
 }
 
-const GLOB_STAR_TOKEN = "__HEARTH_STAR__";
-
-/** Simple glob → regex: ** matches any path, * matches any non-slash, ? matches one char. */
-function globToRegex(pattern: string): RegExp {
-  const expanded = expandHome(pattern);
-  const re = expanded
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*\*/g, GLOB_STAR_TOKEN)
-    .replace(/\*/g, "[^/]*")
-    .replaceAll(GLOB_STAR_TOKEN, ".*")
-    .replace(/\?/g, ".");
-  return new RegExp(`^${re}$`);
+/** Glob matcher delegated to the shared shim — backslash-aware + case-insensitive on win32. */
+function matchesPattern(path: string, pattern: string): boolean {
+  return matchGlob(path, expandHome(pattern));
 }
 
 function matchesGlob(path: string, patterns: string[]): string | null {
   for (const pat of patterns) {
     try {
-      if (globToRegex(pat).test(path)) return pat;
+      if (matchesPattern(path, pat)) return pat;
     } catch {
       // bad pattern — skip
     }
@@ -92,7 +83,7 @@ function readStdinSync(): string {
 }
 
 function getSocketPath(): string {
-  return process.env.SOULFORGE_HEARTH_SOCKET ?? join(homedir(), ".soulforge", "hearth.sock");
+  return process.env.SOULFORGE_HEARTH_SOCKET ?? join(configDir(), "hearth.sock");
 }
 
 /** Hearth config shape we care about for deny-read. */
@@ -105,10 +96,7 @@ interface MinimalHearthConfig {
 }
 
 function loadExtraDenylist(cwd: string): string[] {
-  const paths = [
-    join(homedir(), ".soulforge", "hearth.json"),
-    join(cwd, ".soulforge", "hearth.json"),
-  ];
+  const paths = [join(configDir(), "hearth.json"), join(cwd, ".soulforge", "hearth.json")];
   const extras = new Set<string>();
   for (const p of paths) {
     if (!existsSync(p)) continue;
@@ -134,7 +122,9 @@ function normalizePath(p: string, cwd: string): string {
   const expanded = expandHome(p);
   // path.resolve collapses `..` and `.` so a request for "../../etc/passwd"
   // can't escape to a location the denylist doesn't match.
-  return expanded.startsWith("/") ? resolvePath(expanded) : resolvePath(cwd, expanded);
+  const isAbs =
+    expanded.startsWith("/") || /^[A-Za-z]:[\\/]/.test(expanded) || expanded.startsWith("\\\\");
+  return isAbs ? resolvePath(expanded) : resolvePath(cwd, expanded);
 }
 
 function extractPath(input: Record<string, unknown> | undefined): string | null {
