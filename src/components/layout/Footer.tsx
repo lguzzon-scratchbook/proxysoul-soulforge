@@ -1,6 +1,7 @@
 import { useTerminalDimensions } from "@opentui/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { icon } from "../../core/icons.js";
+import { isAddonInstalled } from "../../core/setup/addons.js";
 import { useTheme } from "../../core/theme/index.js";
 import { garble } from "../../core/utils/splash.js";
 
@@ -93,10 +94,8 @@ const HINTS: Hint[] = [
   ["Run ", { h: "/lsp install" }, " to add language servers for smarter navigation"],
   ["Run ", { h: "/diagnose" }, " to health-check your LSP and tree-sitter setup"],
 
-  // Editor & terminals
-  ["Forge can see the file open in your ", { h: "editor" }, " — open it with ", { h: "^E" }],
+  // Terminals (editor hints are addon-gated below)
   ["Type ", { h: "/terminals new" }, " to get a persistent shell alongside chat"],
-  ["Type ", { h: "/editor split" }, " to cycle the editor/chat ratio (40/50/60/70)"],
 
   // Hooks & MCP
   ["Type ", { h: "/hooks" }, " to run shell commands on agent events — auto-format on edit"],
@@ -124,6 +123,40 @@ const HINTS: Hint[] = [
   ["Type ", { h: "/privacy" }, " to hide sensitive files from Forge — like .gitignore for AI"],
   ["Type ", { h: "/update" }, " to check for new SoulForge versions"],
 ];
+
+// Hints surfaced only when an optional addon is installed. Keeps the rotating
+// footer hints from advertising commands a fresh install can't actually run.
+type AddonGate = "neovim" | "proxy";
+interface GatedHint {
+  hint: Hint;
+  requires: AddonGate;
+}
+const GATED_HINTS: GatedHint[] = [
+  {
+    requires: "neovim",
+    hint: [
+      "Forge can see the file open in your ",
+      { h: "editor" },
+      " — open it with ",
+      { h: "^E" },
+    ],
+  },
+  {
+    requires: "neovim",
+    hint: ["Type ", { h: "/editor split" }, " to cycle the editor/chat ratio (40/50/60/70)"],
+  },
+];
+
+/** Active hint pool — base HINTS plus addon-gated ones whose addon is installed. */
+function buildActiveHints(): Hint[] {
+  const out: Hint[] = [...HINTS];
+  for (const g of GATED_HINTS) {
+    if (!isAddonInstalled(g.requires)) continue;
+    out.push(g.hint);
+  }
+  return out;
+}
+
 function hintPlainText(hint: Hint): string {
   return hint.map((s) => (typeof s === "string" ? s : s.h)).join("");
 }
@@ -139,13 +172,13 @@ function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-/** Build a shuffled index bag. When exhausted, reshuffle for the next round. */
-function createHintBag(): { next: () => number } {
+/** Build a shuffled index bag over a hint pool. Reshuffles when exhausted. */
+function createHintBag(pool: Hint[]): { next: () => number } {
   let remaining: number[] = [];
   return {
     next() {
       if (remaining.length === 0) {
-        remaining = HINTS.map((_, i) => i);
+        remaining = pool.map((_, i) => i);
         shuffle(remaining);
       }
       return remaining.pop() as number;
@@ -166,8 +199,11 @@ type HintPhase = "shortcuts" | "glitch-out" | "hint" | "glitch-in";
 function useFooterHint(): { phase: HintPhase; hint: Hint; glitchText: string } {
   const [phase, setPhase] = useState<HintPhase>("shortcuts");
   const [glitchTick, setGlitchTick] = useState(-1);
-  const hintRef = useRef(HINTS[0] as Hint);
-  const bagRef = useRef(createHintBag());
+  // Active hints frozen at mount — addons rarely toggle mid-session, and
+  // refreshing on every render would discard the in-flight bag rotation.
+  const activeHints = useMemo(() => buildActiveHints(), []);
+  const hintRef = useRef(activeHints[0] as Hint);
+  const bagRef = useRef(createHintBag(activeHints));
 
   // Cycle: shortcuts → glitch-out → hint → glitch-in → shortcuts
   // The bag.next() call is inside the timeout callback — no stale closure issues
@@ -175,12 +211,12 @@ function useFooterHint(): { phase: HintPhase; hint: Hint; glitchText: string } {
   useEffect(() => {
     if (phase !== "shortcuts") return;
     const timer = setTimeout(() => {
-      hintRef.current = HINTS[bagRef.current.next()] as Hint;
+      hintRef.current = activeHints[bagRef.current.next()] as Hint;
       setGlitchTick(0);
       setPhase("glitch-out");
     }, HINT_INTERVAL);
     return () => clearTimeout(timer);
-  }, [phase]);
+  }, [phase, activeHints]);
 
   // After hint display, glitch back to shortcuts
   useEffect(() => {

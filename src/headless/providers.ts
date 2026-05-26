@@ -8,7 +8,13 @@ export async function listProviders(): Promise<void> {
   const providers = getAllProviders();
   const customIds = new Set(providers.filter((p) => p.custom).map((p) => p.id));
 
+  // Addon-gated providers (proxy, etc.) have envVar="" and a custom
+  // checkAvailability that returns false when the addon is missing. Skip
+  // those rows entirely — listing "no key" for a provider that takes no key
+  // is misleading. Keep them visible once the addon is installed.
   for (const s of statuses) {
+    const isAddonGated = s.envVar === "";
+    if (isAddonGated && !s.available) continue;
     const tag = customIds.has(s.id) ? ` ${DIM}[custom]${RST}` : "";
     const mark = s.available ? `${GREEN()}ready${RST}` : `${DIM}no key${RST}`;
     const env = s.envVar ? `  ${DIM}(${s.envVar})${RST}` : "";
@@ -29,6 +35,12 @@ export async function listModels(providerId?: string): Promise<void> {
   }
 
   for (const provider of targets) {
+    // Addon-gated providers (envVar="") with custom checkAvailability — skip
+    // when the addon isn't installed unless the user explicitly named it.
+    if (provider.envVar === "" && provider.checkAvailability && !providerId) {
+      const available = await provider.checkAvailability();
+      if (!available) continue;
+    }
     const hasKey = provider.envVar === "" || Boolean(getProviderApiKey(provider.envVar));
     if (!hasKey && !providerId) continue;
 

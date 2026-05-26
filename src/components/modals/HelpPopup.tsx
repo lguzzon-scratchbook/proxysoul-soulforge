@@ -6,9 +6,15 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { detectNeovim } from "../../core/editor/detect.js";
+import { isAddonInstalled } from "../../core/setup/addons.js";
 import { useTheme } from "../../core/theme/index.js";
 import { InfoLine, type InfoLineData, PremiumPopup, Section } from "../ui/index.js";
 import { listScrollAccel } from "../ui/scroll.js";
+
+function hasNeovim(): boolean {
+  return isAddonInstalled("neovim") || detectNeovim() !== null;
+}
 
 interface Props {
   visible: boolean;
@@ -38,9 +44,13 @@ function buildHelpLines(t: ReturnType<typeof useTheme>): InfoLineData[] {
     { type: "entry", label: "Alt+P", desc: "pop last stashed draft" },
     { type: "entry", label: "Alt+R", desc: "error log" },
     { type: "entry", label: "Ctrl+G", desc: "git menu" },
-    { type: "spacer" },
-    { type: "text", label: "Editor" },
-    { type: "entry", label: "Ctrl+E", desc: "open/close editor" },
+    ...(hasNeovim()
+      ? ([
+          { type: "spacer" as const },
+          { type: "text" as const, label: "Editor" },
+          { type: "entry" as const, label: "Ctrl+E", desc: "open/close editor" },
+        ] as InfoLineData[])
+      : []),
     { type: "spacer" },
     { type: "text", label: "Tabs" },
     { type: "entry", label: "Ctrl+T", desc: "new tab" },
