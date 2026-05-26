@@ -319,8 +319,11 @@ function ToolCallRow({
   }
 
   const inTree = !!treePosition;
-  const hasExpandedContent =
-    inTree && (!!props.diff || (props.imageArt && props.imageArt.length > 0));
+  // soul_vision: image is open by default, Ctrl+O collapses it (inverse of other tools).
+  const isVision = tc.name === "soul_vision";
+  const hasImageArt = !!(props.imageArt && props.imageArt.length > 0);
+  const showVisionImage = isVision && hasImageArt && !expanded;
+  const hasExpandedContent = (inTree && (!!props.diff || hasImageArt)) || showVisionImage;
 
   // Expanded error detail (2-line view)
   const fullError = tc.result?.error ?? "";
@@ -452,6 +455,11 @@ function ToolCallRow({
         <box paddingLeft={3}>{multiReadContent}</box>
       </box>
     );
+  }
+
+  // soul_vision collapsed via Ctrl+O — suppress StaticToolRow's inline image render.
+  if (isVision && hasImageArt && expanded) {
+    return <StaticToolRow {...props} suppressExpanded />;
   }
 
   return <StaticToolRow {...props} />;

@@ -79,13 +79,18 @@ export function canRenderImages(): boolean {
  * Confirmed Unicode placeholder support:
  *   Kitty ≤ 0.37, Ghostty
  *
- * Broken (kitty 0.38+ text sizing protocol changed grapheme segmentation for U+10EEEE):
+ * Broken (kitty 0.42+ Unicode 16 grapheme segmentation clusters U+10EEEE + diacritics
+ * into one cell, opentui's Zig renderer can't emit them as separate cells):
  *   Kitty ≥ 0.38 — falls through to chafa/half-block art
  *
  * NO Unicode placeholder support (images break TUI):
  *   Konsole — has Kitty protocol but no Unicode placeholders
  *   WezTerm — only in community fork
  *   iTerm2, Warp
+ *
+ * Tracking: https://github.com/anomalyco/opentui/issues/92 (native image support PR #633)
+ * Workaround: downgrade Kitty to 0.37 (https://github.com/kovidgoyal/kitty/releases/tag/v0.37.0)
+ *             or use Ghostty.
  */
 export function isKittyGraphicsTerminal(): boolean {
   const term = process.env.TERM_PROGRAM?.toLowerCase() ?? "";
@@ -95,9 +100,9 @@ export function isKittyGraphicsTerminal(): boolean {
   if (term === "warp" || term === "wezterm") return false;
   if (process.env.WEZTERM_PANE !== undefined) return false;
 
-  // Kitty: only ≤ 0.37 supports Unicode placeholders correctly.
-  // 0.38+ changed grapheme segmentation (text sizing protocol) which breaks
-  // U+10EEEE + combining diacritics that opentui's renderer emits.
+  // Kitty: only ≤ 0.37 supports Unicode placeholders correctly through opentui's renderer.
+  // 0.38+ changed grapheme segmentation (text sizing protocol, finalised in 0.42 with full
+  // Unicode 16 segmentation) so U+10EEEE + combining diacritics cluster into one grapheme.
   if (process.env.KITTY_WINDOW_ID || term === "kitty") {
     return isKittyVersionAtMost(0, 37);
   }
@@ -105,10 +110,6 @@ export function isKittyGraphicsTerminal(): boolean {
   if (term === "ghostty") return true;
 
   // Konsole: has Kitty graphics protocol but does NOT support Unicode placeholders (U+10EEEE).
-  // Direct image transmission works, but placeholders render as blank/broken.
-  // See: https://invent.kde.org/utilities/konsole/-/merge_requests/594
-  // Falls through to half-block art fallback.
-
   return false;
 }
 
@@ -116,7 +117,6 @@ export function isKittyGraphicsTerminal(): boolean {
  * Check if the terminal supports Kitty graphics ANIMATION (a=f frames, a=a control).
  * Currently only Kitty ≤ 0.37 supports animation (same placeholder constraint).
  * Ghostty, WezTerm, Konsole support static images but NOT animation.
- * See: https://github.com/ghostty-org/ghostty/discussions/5218
  */
 export function supportsKittyAnimation(): boolean {
   if (!(process.env.KITTY_WINDOW_ID || process.env.TERM_PROGRAM?.toLowerCase() === "kitty")) {
