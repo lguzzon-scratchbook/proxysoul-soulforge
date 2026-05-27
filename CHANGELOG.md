@@ -2,6 +2,13 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.18.2] — 2026-05-27
+
+### Bug Fixes
+
+- **shell**: JS-enforced timeout + killTree to prevent infinite hangs
+- **tools**: timeout tee + io-worker calls; drop stale tests
+- harden workers, tools, and abort path
 ## [2.18.1] — 2026-05-27
 
 ### Bug Fixes
