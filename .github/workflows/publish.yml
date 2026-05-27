@@ -187,8 +187,10 @@ jobs:
 
               # Gzip ALL Mach-O files so Homebrew's keg_relocate can't detect them.
               # It scans by magic bytes, not extension — renaming alone doesn't work.
+              # Covers deps/native (intentional bundled binaries) AND deps/workers
+              # (Bun may emit hash-named .node chunks during worker bundling).
               system "gzip", libexec/"soulforge"
-              Dir.glob(libexec/"deps/native/**/*.{node,dylib,so}").each do |f|
+              Dir.glob(libexec/"deps/**/*.{node,dylib,so}").each do |f|
                 system "gzip", f
               end
 
@@ -208,7 +210,7 @@ jobs:
                 # post_install may have failed — decompress if still gzipped
                 if [ -f "\$CELLAR/soulforge.gz" ] && [ ! -f "\$CELLAR/soulforge" ]; then
                   gunzip "\$CELLAR/soulforge.gz" 2>/dev/null || true
-                  find "\$CELLAR/deps/native" -name "*.gz" -exec gunzip {} + 2>/dev/null || true
+                  find "\$CELLAR/deps" -name "*.gz" -exec gunzip {} + 2>/dev/null || true
                   chmod +x "\$CELLAR/soulforge" 2>/dev/null || true
                 fi
 
@@ -249,7 +251,7 @@ jobs:
             def post_install
               # Decompress — if this fails, the wrapper handles it on first run
               system "gunzip", libexec/"soulforge.gz" if File.exist?(libexec/"soulforge.gz")
-              Dir.glob(libexec/"deps/native/**/*.gz").each { |f| system "gunzip", f }
+              Dir.glob(libexec/"deps/**/*.gz").each { |f| system "gunzip", f }
               system "chmod", "+x", libexec/"soulforge"
             end
 
