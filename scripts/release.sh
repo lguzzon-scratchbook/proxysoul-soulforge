@@ -2,12 +2,13 @@
 set -euo pipefail
 
 # SoulForge Release Script
-# Usage: ./scripts/release.sh <patch|minor|major> [--dry-run]
+# Usage: ./scripts/release.sh <patch|minor|major> [--dry-run|--skip-checks]
 #
-# 1. Bumps version in package.json
-# 2. Generates CHANGELOG.md via git-cliff
-# 3. Commits, tags, pushes
-# 4. Creates GitHub release with changelog
+# 1. Runs lint + typecheck + test (skip with --skip-checks)
+# 2. Bumps version in package.json
+# 3. Generates CHANGELOG.md via git-cliff
+# 4. Commits, tags, pushes
+# 5. Creates GitHub release with changelog
 #
 # Prerequisites: git-cliff (brew install git-cliff), gh (GitHub CLI)
 
@@ -35,6 +36,19 @@ BRANCH=$(git branch --show-current)
 if [[ "$BRANCH" != "main" ]]; then
   echo "Must be on main branch (currently on: $BRANCH)"
   exit 1
+fi
+
+# Pre-flight — catch lint/typecheck/test failures BEFORE tagging.
+# CI runs these too, but a failed CI on a published tag means a broken
+# Homebrew formula or npm tarball before the npm-publish job can veto it.
+# --skip-checks is an escape hatch for emergency releases.
+if [[ "$DRY_RUN" != "--skip-checks" && "$DRY_RUN" != "--dry-run" ]]; then
+  echo "  Pre-flight: lint, typecheck, test..."
+  bun run lint
+  bun run typecheck
+  bun test
+  echo "  Pre-flight OK"
+  echo ""
 fi
 
 # Current version
