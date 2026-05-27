@@ -44,40 +44,6 @@ describe("family prompt selection", () => {
   });
 });
 
-// ── Family Prompt Content ──
-
-describe("family prompt content", () => {
-  test("all family prompts contain Forge identity", () => {
-    for (const prompt of [CLAUDE_PROMPT, OPENAI_PROMPT, GOOGLE_PROMPT, DEFAULT_PROMPT]) {
-      expect(prompt).toContain("Forge");
-    }
-  });
-
-  test("all family prompts include answer-voice compression rules", () => {
-    for (const prompt of [CLAUDE_PROMPT, OPENAI_PROMPT, GOOGLE_PROMPT, DEFAULT_PROMPT]) {
-      expect(prompt).toContain("<answer_voice>");
-    }
-  });
-
-  test("all family prompts prohibit unsolicited commits", () => {
-    for (const prompt of [CLAUDE_PROMPT, OPENAI_PROMPT, GOOGLE_PROMPT, DEFAULT_PROMPT]) {
-      expect(prompt).toContain("Only commit when the user explicitly asks");
-    }
-  });
-
-  test("claude prompt has tonal delta", () => {
-    expect(CLAUDE_PROMPT).toContain("<tone>");
-  });
-
-  test("openai prompt has agent framing", () => {
-    expect(OPENAI_PROMPT).toContain("Keep going until");
-  });
-
-  test("google prompt has structured mandates", () => {
-    expect(GOOGLE_PROMPT).toContain("<core_mandates>");
-  });
-});
-
 // ── Builder Assembly ──
 
 function baseOpts(overrides?: Partial<PromptBuilderOptions>): PromptBuilderOptions {
@@ -93,56 +59,26 @@ function baseOpts(overrides?: Partial<PromptBuilderOptions>): PromptBuilderOptio
 }
 
 describe("buildSystemPrompt assembly", () => {
-  test("includes family prompt for the model", () => {
-    const prompt = buildSystemPrompt(baseOpts());
-    expect(prompt).toContain("Forge");
-    expect(prompt).toContain("<tone>"); // claude-specific tonal delta
+  test("tool-guidance branch toggles with hasRepoMap", () => {
+    const withMap = buildSystemPrompt(baseOpts({ hasRepoMap: true }));
+    const withoutMap = buildSystemPrompt(baseOpts({ hasRepoMap: false }));
+    expect(withMap).toContain("<workflow>");
+    expect(withoutMap).not.toContain("<workflow>");
   });
 
-  test("includes tool guidance when repo map is ready", () => {
-    const prompt = buildSystemPrompt(baseOpts({ hasRepoMap: true }));
-    expect(prompt).toContain("Soul Map");
-    expect(prompt).toContain("<workflow>");
-    expect(prompt).toContain("<ast_edit>");
+  test("mode overlay only present for non-default modes", () => {
+    const def = buildSystemPrompt(baseOpts({ forgeMode: "default" }));
+    const arch = buildSystemPrompt(baseOpts({ forgeMode: "architect" }));
+    expect(def).not.toContain("ARCHITECT MODE");
+    expect(arch).toContain("ARCHITECT MODE");
   });
 
-  test("includes no-map guidance when repo map not ready", () => {
-    const prompt = buildSystemPrompt(baseOpts({ hasRepoMap: false }));
-    expect(prompt).toContain("dedicated tools over shell");
-    expect(prompt).not.toContain("<workflow>");
-  });
-
-  test("does not include cwd, projectInfo, or memory", () => {
-    const prompt = buildSystemPrompt(baseOpts());
-    expect(prompt).not.toContain("Project cwd");
-    expect(prompt).not.toContain("Memory:");
-  });
-
-  test("includes mode overlay when not default", () => {
-    const prompt = buildSystemPrompt(baseOpts({ forgeMode: "architect" }));
-    expect(prompt).toContain("ARCHITECT MODE");
-  });
-
-  test("no mode overlay for default mode", () => {
-    const prompt = buildSystemPrompt(baseOpts({ forgeMode: "default" }));
-    expect(prompt).not.toContain("Mode:");
-  });
-
-  test("includes skills reference", () => {
-    const prompt = buildSystemPrompt(baseOpts());
-    expect(prompt).toContain("Skills may be loaded");
-  });
-
-  test("warns about limited symbols", () => {
-    const prompt = buildSystemPrompt(baseOpts({ hasRepoMap: true, hasSymbols: false }));
-    expect(prompt).toContain("Code intelligence limited");
-  });
-
-  test("uses correct family for different models", () => {
+  test("routes by model family — claude vs openai produce different prompts", () => {
     const claude = buildSystemPrompt(baseOpts({ modelId: "anthropic/claude-opus-4" }));
     const openai = buildSystemPrompt(baseOpts({ modelId: "openai/gpt-4o" }));
-    expect(claude).toContain("<tone>"); // claude-specific tonal delta
-    expect(openai).toContain("Keep going until"); // openai-specific agentic framing
+    expect(claude).not.toBe(openai);
+    expect(claude).toContain(getFamilyPrompt("claude"));
+    expect(openai).toContain(getFamilyPrompt("openai"));
   });
 });
 

@@ -150,25 +150,26 @@ describe("MemoryManager — cleanup tracker", () => {
   });
 
   it("starts with null lastCleanupAt and zero sessions", () => {
-    mgr = new MemoryManager(dir);
+    mgr = new MemoryManager(dir, join(dir, "global"));
     expect(mgr.cleanupTracker.lastCleanupAt).toBeNull();
     expect(mgr.cleanupTracker.sessionsSinceCleanup).toBe(0);
   });
 
   it("noteSessionStart increments and persists across reopen", () => {
-    mgr = new MemoryManager(dir);
+    const globalDir = join(dir, "global");
+    mgr = new MemoryManager(dir, globalDir);
     mgr.noteSessionStart();
     mgr.noteSessionStart();
     expect(mgr.cleanupTracker.sessionsSinceCleanup).toBe(2);
     mgr.close();
 
-    const mgr2 = new MemoryManager(dir);
+    const mgr2 = new MemoryManager(dir, globalDir);
     expect(mgr2.cleanupTracker.sessionsSinceCleanup).toBe(2);
     mgr2.close();
   });
 
   it("noteCleanupCompleted resets counter and stamps timestamp", () => {
-    mgr = new MemoryManager(dir);
+    mgr = new MemoryManager(dir, join(dir, "global"));
     mgr.noteSessionStart();
     mgr.noteSessionStart();
     mgr.noteCleanupCompleted();
@@ -177,14 +178,14 @@ describe("MemoryManager — cleanup tracker", () => {
   });
 
   it("cleanupHint returns null below thresholds", () => {
-    mgr = new MemoryManager(dir);
+    mgr = new MemoryManager(dir, join(dir, "global"));
     expect(mgr.cleanupHint()).toBeNull(); // no memories, no sessions
     for (let i = 0; i < 25; i++) mgr.noteSessionStart();
     expect(mgr.cleanupHint()).toBeNull(); // sessions ok but <30 memories
   });
 
   it("cleanupHint fires when sessions ≥20 AND memories ≥30 AND stale ≥10", () => {
-    mgr = new MemoryManager(dir);
+    mgr = new MemoryManager(dir, join(dir, "global"));
     for (let i = 0; i < 35; i++) {
       mgr.write("project", {
         summary: `entry ${String(i)}`,

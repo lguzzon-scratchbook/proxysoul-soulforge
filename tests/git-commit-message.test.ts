@@ -124,27 +124,3 @@ describe("git tool body/footer assembly", () => {
 	});
 });
 
-describe("git tool schema coercion", () => {
-	it("array body joins with newlines", () => {
-		const lines = ["Line 1", "Line 2", "Line 3"];
-		expect(lines.join("\n")).toBe("Line 1\nLine 2\nLine 3");
-	});
-
-	it("stringified JSON array is parseable", () => {
-		const input = '["Line 1", "Line 2"]';
-		const parsed = JSON.parse(input);
-		expect(Array.isArray(parsed)).toBe(true);
-		expect(parsed.join("\n")).toBe("Line 1\nLine 2");
-	});
-
-	it("string body passes through", () => {
-		const input = "Single line body";
-		expect(input).toBe("Single line body");
-	});
-
-	it("null/undefined becomes undefined", () => {
-		const v: string | null = null;
-		const result = v == null ? undefined : v;
-		expect(result).toBeUndefined();
-	});
-});

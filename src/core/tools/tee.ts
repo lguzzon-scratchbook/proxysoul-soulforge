@@ -29,20 +29,23 @@ async function pruneOldFiles(): Promise<void> {
 }
 
 export async function saveTee(label: string, content: string): Promise<string> {
-  await ensureDir();
+  await withTimeout(ensureDir(), 2_000, "mkdir");
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const safeName = label.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
   const filename = `${ts}_${safeName}.txt`;
   const filepath = join(TEE_DIR, filename);
-  // Cap individual file size — keep head + tail of oversized content
   let toWrite = content;
   if (content.length > MAX_TEE_BYTES) {
     const half = Math.floor(MAX_TEE_BYTES / 2);
     const omitted = content.length - MAX_TEE_BYTES;
     toWrite = `${content.slice(0, half)}\n\n... [${String(omitted)} bytes omitted] ...\n\n${content.slice(-half)}`;
   }
-  await writeFile(filepath, toWrite, "utf-8");
-  await pruneOldFiles();
+  try {
+    await withTimeout(writeFile(filepath, toWrite, "utf-8"), 5_000, "writeFile");
+  } catch {
+    return "<tee unavailable>";
+  }
+  void withTimeout(pruneOldFiles(), 2_000, "prune").catch(() => {});
   return filepath;
 }
 
@@ -67,4 +70,12 @@ export async function truncateWithTee(
     output.slice(-tailSize),
   ].join("\n");
   return { text, teeFile };
+}
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, rej) =>
+      setTimeout(() => rej(new Error(`tee: ${label} timeout after ${ms}ms`)), ms),
+    ),
+  ]);
 }

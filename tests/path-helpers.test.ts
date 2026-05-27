@@ -2,19 +2,6 @@ import { describe, expect, it } from "bun:test";
 import { looksLikeFilePath } from "../src/hooks/chat/message-processing.js";
 import { tsJsHandler, pythonHandler } from "../src/core/tools/move-symbol.js";
 
-const BACKTICK_PATH_RE = /`([^`\s]+)`/g;
-
-function extractPathsFromText(text: string): string[] {
-  if (text.length > 500_000) return [];
-  const paths: string[] = [];
-  for (const match of text.matchAll(BACKTICK_PATH_RE)) {
-    if (match[1] && looksLikeFilePath(match[1])) {
-      paths.push(match[1]);
-    }
-  }
-  return paths;
-}
-
 describe("looksLikeFilePath", () => {
   it("accepts typical file paths", () => {
     expect(looksLikeFilePath("src/core/diff.ts")).toBe(true);
@@ -109,56 +96,6 @@ describe("looksLikeFilePath", () => {
 
   it("accepts path with unicode characters", () => {
     expect(looksLikeFilePath("src/café.ts")).toBe(true);
-  });
-});
-
-describe("extractPathsFromText", () => {
-  it("extracts backtick-wrapped paths from text", () => {
-    const text = "Modified `src/core/diff.ts` and `src/hooks/useChat.ts`";
-    const paths = extractPathsFromText(text);
-    expect(paths).toEqual(["src/core/diff.ts", "src/hooks/useChat.ts"]);
-  });
-
-  it("ignores non-path backtick content", () => {
-    const text = "Use the `forEach` method on `Array` class";
-    expect(extractPathsFromText(text)).toEqual([]);
-  });
-
-  it("ignores code blocks with spaces inside backticks", () => {
-    const text = "Run `bun test src/core/diff.ts` to test";
-    expect(extractPathsFromText(text)).toEqual([]);
-  });
-
-  it("returns empty for extremely long text", () => {
-    const text = "`src/foo.ts`" + "x".repeat(600_000);
-    expect(extractPathsFromText(text)).toEqual([]);
-  });
-
-  it("handles empty text", () => {
-    expect(extractPathsFromText("")).toEqual([]);
-  });
-
-  it("handles adjacent backtick paths", () => {
-    const text = "`src/a.ts``src/b.ts`";
-    const paths = extractPathsFromText(text);
-    expect(paths).toEqual(["src/a.ts", "src/b.ts"]);
-  });
-
-  it("returns empty when text has no backticks", () => {
-    const text = "This is plain text with no backticks at all, not even src/foo.ts paths.";
-    expect(extractPathsFromText(text)).toEqual([]);
-  });
-
-  it("filters out URLs inside backticks", () => {
-    const text = "See `https://example.com/api/file.js` for reference";
-    expect(extractPathsFromText(text)).toEqual([]);
-  });
-
-  it("extracts paths mixed with non-path backtick content", () => {
-    const text =
-      "Updated `src/core/diff.ts` using the `map` function, then modified `lib/utils/parse.js` accordingly";
-    const paths = extractPathsFromText(text);
-    expect(paths).toEqual(["src/core/diff.ts", "lib/utils/parse.js"]);
   });
 });
 

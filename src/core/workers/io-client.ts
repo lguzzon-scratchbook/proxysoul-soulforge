@@ -103,7 +103,7 @@ export class IOClient extends WorkerClient {
   }
 
   async compressShellOutputFull(raw: string): Promise<CompressResult> {
-    return this.call("compressShellOutputFull", raw);
+    return this.callWithTimeout(5_000, "compressShellOutputFull", raw);
   }
 
   // ── File Tree ────────────────────────────────────────────────────
