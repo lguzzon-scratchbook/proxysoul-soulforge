@@ -2,6 +2,53 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.18.0] — 2026-05-27
+
+### Bug Fixes
+
+- **addons**: surface install/uninstall flows + clean Windows user data
+- **addons**: accept --list/-l/--help/-h flags + clearer unknown-verb error
+- **addons**: accept --addon flag form + surface addon help in top-level usage
+- **addons**: honour system PATH binaries, guard reinstall, wipe stale state
+- **agents**: drop orphan provider-executed tool blocks before replay
+- **brew**: clean ~/.soulforge on uninstall + version-stamp upgrade
+- **bundle**: use --outdir for worker builds (Bun multi-chunk output)
+- **ci**: bump @opentui/core-win32-x64 pin to 0.2.15
+- **deps**: bump @opentui/core native dylibs to 0.2.15
+- **llm**: hide addon-gated providers from Ctrl+L when addon missing
+- **setup**: split addon wizard into sequential yes/no prompts
+- **soul_vision**: stabilize Kitty image rendering across rail transitions
+- **soul_vision**: render image inline in streaming tool rail
+- **soul_vision**: open image by default, ctrl+o collapses
+- **ui**: correct Ctrl+B/F label — browse checkpoints, not undo/redo
+### Documentation
+
+- escape literal $ in prose so Mintlify stops eating it as math
+- sweep windows install — fix bogus URLs, fold into installation
+- sweep mintlify docs against code, add addons + presets pages
+- add Discord community link
+### Features
+
+- **addons**: gate UI surfaces on addon presence (headless, footer, help)
+- **addons**: hide proxy/neovim commands and editor tool when addon missing
+- **addons**: first-run wizard prompts for proxy + neovim via clack
+- **addons**: make proxy + neovim opt-in via `soulforge addon install`
+- **release**: add pre-flight lint/typecheck/test gate
+- **windows**: native Windows x64 support (#74)
+### Miscellaneous
+
+- **LockInStreamView**: sort imports
+- **build**: harden compile pipeline (opencode-inspired)
+- **scripts**: drop fake soulforge.dev URLs from installer comments
+- **tests**: drop stale LockInStreamView terminology in dispatch test
+### Performance
+
+- **input**: unblock submit path for large pasted text
+### Refactor
+
+- **modals**: use shared SPINNER_FRAMES in Diagnose/UpdateModal
+- **tool**: rename set_lockin → final_response + fix boundary race
+- minor cleanups
 ## [2.17.0] — 2026-05-22
 
 ### Bug Fixes
