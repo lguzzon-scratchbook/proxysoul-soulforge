@@ -2,6 +2,16 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.18.4] — 2026-05-27
+
+### Bug Fixes
+
+- **launcher**: detach child process group to preserve exit banner
+- **presets**: apply overlay against seeded defaults, validate via zod
+### Features
+
+- **providers**: expand context-length field mapping for custom providers
+- **providers**: auto-discover models for custom OpenAI-compatible providers
 ## [2.18.3] — 2026-05-27
 
 ### Bug Fixes
