@@ -346,11 +346,26 @@ if (isCompile) {
   const isProd = process.env.NODE_ENV === "production" || process.argv.includes("--prod");
   const minify = isProd ? { whitespace: true, identifiers: true, syntax: true } : false;
 
+  // Same --external rationale as the worker build below: keep native + asset
+  // packages out of dist/index.js's chunk fan-out. Resolved at runtime from
+  // node_modules (npm install) or from the hydrated ~/.soulforge/native dir
+  // (compiled binary install).
   const result = await Bun.build({
     entrypoints: ["src/boot.tsx"],
     outdir: "dist",
     target: "bun",
     naming: "[dir]/index.[ext]",
+    external: [
+      "ghostty-opentui",
+      "ghostty-opentui/*",
+      "@opentui/core",
+      "@opentui/core/*",
+      "tree-sitter-wasms",
+      "tree-sitter-wasms/*",
+      "*.node",
+      "*.wasm",
+      "*.scm",
+    ],
     plugins: [
       stripAbsPathsPlugin,
       reactCompilerPlugin,
