@@ -12,6 +12,7 @@ export { llmgateway } from "./llmgateway.js";
 export { lmstudio } from "./lmstudio.js";
 export { minimax } from "./minimax.js";
 export { mistral } from "./mistral.js";
+export { nim } from "./nim.js";
 export { ollama } from "./ollama.js";
 export { openai } from "./openai.js";
 export { opencodeGo } from "./opencode-go.js";
@@ -36,6 +37,7 @@ import { llmgateway } from "./llmgateway.js";
 import { lmstudio } from "./lmstudio.js";
 import { minimax } from "./minimax.js";
 import { mistral } from "./mistral.js";
+import { nim } from "./nim.js";
 import { ollama } from "./ollama.js";
 import { openai } from "./openai.js";
 import { opencodeGo } from "./opencode-go.js";
@@ -60,6 +62,7 @@ const BUILTIN_PROVIDERS: ProviderDefinition[] = [
   bedrock,
   fireworks,
   minimax,
+  nim,
   codex,
   copilot,
   githubModels,
