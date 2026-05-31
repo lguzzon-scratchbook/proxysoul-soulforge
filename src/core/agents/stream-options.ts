@@ -89,7 +89,7 @@ export function sanitizeMessages(messages: ModelMessage[]): ModelMessage[] {
   }
   for (let i = result.length - 1; i >= 0; i--) {
     const msg = result[i];
-    if (!msg || msg.role !== "tool" || !Array.isArray(msg.content)) continue;
+    if (msg?.role !== "tool" || !Array.isArray(msg.content)) continue;
     const filtered = msg.content.filter((p) => {
       // biome-ignore lint/suspicious/noExplicitAny: structural check
       const part = p as any;

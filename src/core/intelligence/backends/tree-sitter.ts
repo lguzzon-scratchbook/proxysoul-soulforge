@@ -1303,7 +1303,7 @@ export class TreeSitterBackend implements IntelligenceBackend {
       const lines = node.endPosition.row - node.startPosition.row + 1;
       if (lines >= TreeSitterBackend.MIN_HASH_LINES) {
         const hasArrow = node.namedChildren.some((c: TSNode | null) => {
-          if (!c || c.type !== "variable_declarator") return false;
+          if (c?.type !== "variable_declarator") return false;
           return c.namedChildren.some(
             (gc: TSNode | null) =>
               gc != null && (gc.type === "arrow_function" || gc.type === "function_expression"),

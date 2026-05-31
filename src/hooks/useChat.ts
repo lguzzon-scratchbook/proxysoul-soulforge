@@ -129,7 +129,7 @@ function pruneOldToolResults(msgs: ModelMessage[]): ModelMessage[] {
 
   for (let i = msgs.length - 1; i >= 0; i--) {
     const msg = msgs[i];
-    if (!msg || msg.role !== "tool" || !Array.isArray(msg.content)) continue;
+    if (msg?.role !== "tool" || !Array.isArray(msg.content)) continue;
     for (const part of msg.content) {
       if (typeof part !== "object" || part === null || !("type" in part)) continue;
       const p = part as { type: string; output?: unknown };
@@ -1208,7 +1208,7 @@ export function useChat({
         for (const msg of validRecent) {
           if (msg.role === "tool") {
             const prev = sanitized[sanitized.length - 1];
-            if (!prev || prev.role !== "assistant") continue; // drop orphan
+            if (prev?.role !== "assistant") continue; // drop orphan
           }
           sanitized.push(msg);
         }
@@ -1832,7 +1832,7 @@ export function useChat({
       // compaction or session restore drops the assistant message that owned them.
       for (let i = sanitized.length - 1; i >= 0; i--) {
         const msg = sanitized[i];
-        if (!msg || msg.role !== "tool" || !Array.isArray(msg.content)) continue;
+        if (msg?.role !== "tool" || !Array.isArray(msg.content)) continue;
         const prev = sanitized[i - 1];
         const validCallIds = new Set<string>();
         if (prev?.role === "assistant" && Array.isArray(prev.content)) {

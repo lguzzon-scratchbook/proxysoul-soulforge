@@ -196,7 +196,7 @@ async function probeDaemon(socketPath: string): Promise<DaemonStatus> {
       { op: "health", v: HEARTH_PROTOCOL_VERSION },
       { path: socketPath, timeoutMs: 1200 },
     )) as unknown as HealthResponse;
-    if (!res || res.ok !== true) return { running: false, error: "health check failed" };
+    if (res?.ok !== true) return { running: false, error: "health check failed" };
     return {
       running: true,
       uptimeMs: res.uptime,

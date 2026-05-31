@@ -185,7 +185,7 @@ export function CommandPalette({ visible, onClose, onExecute }: Props) {
   useEffect(() => {
     if (rows.length === 0) return;
     const cur = rows[cursorRef.current];
-    if (!cur || cur.kind !== "item") {
+    if (cur?.kind !== "item") {
       setCursor(firstItemIdx >= 0 ? firstItemIdx : 0);
     } else if (cursorRef.current >= rows.length) {
       setCursor(Math.max(0, rows.length - 1));

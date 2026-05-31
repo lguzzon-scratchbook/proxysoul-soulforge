@@ -78,7 +78,7 @@ function hasPlanToolCall(messages: ModelMessage[]): boolean {
 function lastStepHadPlanCall(messages: ModelMessage[]): boolean {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    if (!msg || msg.role !== "assistant") continue;
+    if (msg?.role !== "assistant") continue;
     if (!Array.isArray(msg.content)) return false;
     for (const part of msg.content) {
       if (part.type === "tool-call" && part.toolName === "plan") return true;
