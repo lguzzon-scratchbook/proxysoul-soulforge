@@ -19,7 +19,15 @@ export const openrouter: ProviderDefinition = {
     if (!apiKey) {
       throw new Error("OPENROUTER_API_KEY is not set");
     }
-    const provider = createOpenRouter({ apiKey });
+    const provider = createOpenRouter({
+      apiKey,
+      headers: {
+        "HTTP-Referer": "https://soulforge.proxysoul.com",
+        "X-Title": "SoulForge",
+        "X-OpenRouter-Title": "SoulForge",
+        "X-OpenRouter-Categories": "cli-agent",
+      },
+    });
     return provider(modelId);
   },
 
