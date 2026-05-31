@@ -406,9 +406,18 @@ export function App({
     useEditorFocus();
   const [editorVisible, setEditorVisible] = useState(false);
 
-  const tabMgr = useTabs();
+  const tabMgr = useTabs((survivingIds) => {
+    // A tab was closed — immediately drop it from the on-disk session so it
+    // can't reappear on the next restore. Best-effort; failures are non-fatal.
+    const sm = sessionManagerRef.current;
+    const sid = getAppSessionId();
+    if (sm && sid) sm.pruneTabsNotIn(sid, survivingIds).catch(() => {});
+  });
   const tabMgrRef = useRef(tabMgr);
   tabMgrRef.current = tabMgr;
+  // Ref so the closeTab callback (created above) can reach sessionManager,
+  // which is declared later — avoids a TDZ on the const binding.
+  const sessionManagerRef = useRef<SessionManager | null>(null);
 
   const hasTabBarRef = useRef(false);
   hasTabBarRef.current = tabMgr.tabCount > 1;
@@ -646,6 +655,7 @@ export function App({
     [cwd, preloadedContextManager],
   );
   const sessionManager = useMemo(() => new SessionManager(cwd), [cwd]);
+  sessionManagerRef.current = sessionManager;
 
   const mcpManager = useMemo(() => getMCPManager(), []);
 

@@ -64,7 +64,7 @@ const DEFAULT_ACTIVITY: TabActivity = {
   editedFileCount: 0,
 };
 
-export function useTabs(): UseTabsReturn {
+export function useTabs(onTabClosed?: (survivingIds: Set<string>) => void): UseTabsReturn {
   const initialId = useRef(crypto.randomUUID()).current;
   const [tabs, setTabs] = useState<Tab[]>([{ id: initialId, label: "TAB-1" }]);
   const [activeTabId, setActiveTabId] = useState<string>(initialId);
@@ -80,6 +80,8 @@ export function useTabs(): UseTabsReturn {
   tabsRef.current = tabs;
   const activeTabIdRef = useRef(activeTabId);
   activeTabIdRef.current = activeTabId;
+  const onTabClosedRef = useRef(onTabClosed);
+  onTabClosedRef.current = onTabClosed;
 
   const activeTab = useMemo(
     () => (tabs.find((t) => t.id === activeTabId) ?? tabs[0]) as (typeof tabs)[number],
@@ -147,6 +149,11 @@ export function useTabs(): UseTabsReturn {
       const newActiveId = newTabs[newIdx]?.id ?? newTabs[0]?.id ?? "";
       setActiveTabId(newActiveId);
     }
+
+    // Persist the close immediately — drop the tab from the on-disk session so it
+    // can't reappear on the next restore. Restore never calls closeTab (it clears
+    // the registry directly), so this only fires on a genuine user close.
+    onTabClosedRef.current?.(new Set(newTabs.map((t) => t.id)));
 
     return true;
   }, []);
