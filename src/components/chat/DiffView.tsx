@@ -141,6 +141,8 @@ export const DiffView = memo(function DiffView({
         <diff
           diff={unifiedDiff}
           view={viewMode}
+          wrapMode="word"
+          syncScroll={viewMode === "split"}
           filetype={lang}
           syntaxStyle={getSyntaxStyle()}
           treeSitterClient={getTSClient()}
