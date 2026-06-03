@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.3] — 2026-06-03
+
+### Bug Fixes
+
+- **clipboard**: always emit OSC-52 and native copy
 ## [2.20.2] — 2026-06-03
 
 ### Features
