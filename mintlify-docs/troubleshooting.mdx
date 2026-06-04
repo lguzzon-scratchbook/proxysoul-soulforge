@@ -141,6 +141,42 @@ soulforge --headless --chat            # browse by timestamp
 
 Or open `/session history` inside SoulForge. Sessions live in `~/.soulforge/sessions/`.
 
+## Windows: pasting an image does nothing
+
+`Ctrl+V` with a screenshot on the clipboard may silently do nothing. Two separate causes on Windows:
+
+1. **Windows Terminal eats the paste.** Its bracketed-paste mode emits an *empty* sequence for image clipboards, so the image bytes never reach SoulForge. Embedded Neovim / Vim keymaps can also swallow `Ctrl+V` first.
+2. **PowerShell can't be reached.** The clipboard read shells out to PowerShell; if neither `powershell` nor `pwsh` is on `PATH`, the read fails.
+
+Try, in order:
+
+- Press **`Alt+V`** instead of `Ctrl+V` — it bypasses the bracketed-paste / Vim-keymap interception.
+- Make sure Windows PowerShell 5.1 is on `PATH`: `C:\Windows\System32\WindowsPowerShell\v1.0`.
+- Check `/errors` inside SoulForge — a failed clipboard read leaves a `clipboard` breadcrumb there.
+
+If neither works (the Windows Terminal bug is upstream), **save the screenshot to a file and reference the path** — the agent reads it with `soul_vision`:
+
+```
+look at C:\Users\me\Desktop\bug.png and tell me what's wrong
+```
+
+Drop this helper in your PowerShell profile to capture the clipboard image to a file in one command:
+
+```powershell
+function Save-ClipboardImage {
+    param([string]$Path = "$env:TEMP\sf-paste.png")
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    $img = [System.Windows.Forms.Clipboard]::GetImage()
+    if ($img) {
+        $img.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
+        Write-Host "Saved: $Path — paste this path into SoulForge."
+    } else { Write-Host "No image on clipboard." }
+}
+Set-Alias cpimg Save-ClipboardImage -Force
+```
+
+Run `cpimg`, then reference the printed path in your prompt.
+
 ## Windows: command not found after install
 
 PATH updates don't apply to the shell that ran the installer. Open a brand-new PowerShell or Windows Terminal window.

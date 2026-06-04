@@ -17,9 +17,9 @@
  */
 
 import { execFile, type SpawnOptions, spawnSync } from "node:child_process";
-import { readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { IS_DARWIN, IS_WIN, tmpDir } from "./index.js";
+import { findOnPath, IS_DARWIN, IS_WIN, tmpDir } from "./index.js";
 
 export type ClipboardMediaType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
 
@@ -168,7 +168,32 @@ function readImageLinux(): Promise<ClipboardImage | null> {
   });
 }
 
+/**
+ * Resolve a usable PowerShell binary on Windows. `execFile` does NOT walk
+ * PATHEXT or apply shell resolution, so a bare "powershell" throws ENOENT on
+ * machines where only PowerShell 7 (`pwsh`) is installed, or where the child
+ * process PATH omits System32. Probe, in order:
+ *   1. `powershell` on PATH (Windows PowerShell 5.1, present on most installs)
+ *   2. the canonical full path (PATH-independent — survives a stripped PATH)
+ *   3. `pwsh` on PATH (PowerShell 7+, the only shell on minimal/Server boxes)
+ */
+function resolveWindowsPowerShell(): string | null {
+  const onPath = findOnPath("powershell");
+  if (onPath) return onPath;
+  const fullPath = join(
+    process.env.SystemRoot ?? "C:\\Windows",
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  if (existsSync(fullPath)) return fullPath;
+  return findOnPath("pwsh");
+}
+
 function readImageWindows(): Promise<ClipboardImage | null> {
+  const exe = resolveWindowsPowerShell();
+  if (!exe) return Promise.resolve(null);
   const tmpFile = join(
     tmpDir(),
     `soulforge-clipboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`,
@@ -177,11 +202,21 @@ function readImageWindows(): Promise<ClipboardImage | null> {
   // quoting. No string interpolation of `tmpFile` into the script body.
   // System.Drawing is NOT auto-loaded in PS 5.1+/7 — must Add-Type explicitly,
   // otherwise [System.Drawing.Imaging.ImageFormat] throws "Unable to find type".
+  //
+  // GetImage() only returns when the clipboard holds a Bitmap/DIB. Snipping
+  // Tool, browsers, and many apps put a raw PNG stream on the clipboard
+  // instead — GetImage() returns $null for those. Try the "PNG" data format
+  // first (write its bytes straight through) and fall back to GetImage().
   const ps = [
     "param([Parameter(Mandatory)][string]$OutFile)",
     "$ErrorActionPreference = 'SilentlyContinue';",
     "Add-Type -AssemblyName System.Windows.Forms;",
     "Add-Type -AssemblyName System.Drawing;",
+    "$png = [System.Windows.Forms.Clipboard]::GetData('PNG');",
+    "if ($png -is [System.IO.MemoryStream]) {",
+    "  [System.IO.File]::WriteAllBytes($OutFile, $png.ToArray());",
+    "  Write-Output 'ok'; exit 0;",
+    "}",
     "$img = [System.Windows.Forms.Clipboard]::GetImage();",
     "if ($img -eq $null) { Write-Output 'no-image'; exit 0 };",
     "$img.Save($OutFile, [System.Drawing.Imaging.ImageFormat]::Png);",
@@ -189,9 +224,10 @@ function readImageWindows(): Promise<ClipboardImage | null> {
   ].join(" ");
   return new Promise((resolve) => {
     execFile(
-      "powershell",
+      exe,
       ["-NoProfile", "-NonInteractive", "-STA", "-Command", ps, "-OutFile", tmpFile],
-      { timeout: 5000, windowsHide: true },
+      // Cold PowerShell pays an Add-Type JIT cost; 5s overran on slow boxes.
+      { timeout: 10000, windowsHide: true },
       (err, stdout) => {
         if (err || !stdout.toString().trim().startsWith("ok")) {
           cleanup(tmpFile);

@@ -13,9 +13,11 @@ import {
 } from "../../core/history/index.js";
 import { icon } from "../../core/icons.js";
 import { useTheme } from "../../core/theme/index.js";
+import { logBackgroundError } from "../../stores/errors.js";
 import { useUIStore } from "../../stores/ui.js";
 import type { ImageAttachment } from "../../types/index.js";
 import { readClipboardImageAsync } from "../../utils/clipboard.js";
+import { toErrorMessage } from "../../utils/errors.js";
 import { compressImageForApi } from "../../utils/image-compress.js";
 import { compactScrollAccel } from "../ui/scroll.js";
 import { pickTip } from "./tips.js";
@@ -528,17 +530,26 @@ export const InputBox = memo(function InputBox({
   }, [isFocused, renderer]);
 
   useKeyboard((evt) => {
-    // Ctrl+V: probe clipboard for image data in the background.
+    // Ctrl+V / Alt+V: probe clipboard for image data in the background.
     // We do NOT preventDefault — the terminal's bracketed paste handles text normally.
     // If an image is found, we append [image-N] after the text paste completes.
-    if (isFocused && evt.ctrl && evt.name === "v") {
+    //
+    // Alt+V is bound as well because Windows Terminal's bracketed paste emits an
+    // empty sequence for image clipboards, and embedded-Neovim/Vim key hooks can
+    // swallow Ctrl+V before it reaches us — Alt+V is the documented escape hatch.
+    if (isFocused && (evt.ctrl || evt.meta) && evt.name === "v") {
       if (imageLoadingRef.current) return;
       imageLoadingRef.current = true;
 
       readClipboardImageAsync()
         .then(async (clipImg) => {
           imageLoadingRef.current = false;
-          if (!clipImg) return;
+          if (!clipImg) {
+            // Silent no-op looks like "paste is broken". Leave a breadcrumb in
+            // the background-error log (surfaced via /errors) so it's diagnosable.
+            logBackgroundError("clipboard", "No image found on clipboard (or read failed)");
+            return;
+          }
           const ta = textareaRef.current;
           if (!ta) return;
           // Compress large images to stay under API size limits (5 MB base64)
@@ -553,8 +564,9 @@ export const InputBox = memo(function InputBox({
           ta.insertText(`[${label}] `);
           syncImageExtmarks(ta);
         })
-        .catch(() => {
+        .catch((err) => {
           imageLoadingRef.current = false;
+          logBackgroundError("clipboard", `Image paste failed: ${toErrorMessage(err)}`);
         });
       return;
     }
