@@ -1,5 +1,6 @@
 import { extractReasoningMiddleware, type LanguageModel, wrapLanguageModel } from "ai";
 import { getProviderApiKey } from "../secrets.js";
+import { detectModelFamily } from "./provider-options.js";
 import { getAllProviders, getProvider } from "./providers/index.js";
 
 export interface ProviderStatus {
@@ -130,6 +131,25 @@ export function resolveModel(modelId: string): LanguageModel {
     throw new Error(`Unknown provider "${providerId}"`);
   }
   const base = provider.createModel(model);
+
+  // Only attach the inline-reasoning extractor for families that emit thinking
+  // as <think>/<thinking> tags inside their TEXT stream (local / OpenAI-compatible
+  // models). Native-reasoning families (Claude, OpenAI, Google, xAI, DeepSeek-R)
+  // stream reasoning on a separate channel — running the extractor on them makes
+  // it scan normal answer text for tags, which corrupts/withholds output when the
+  // text legitimately contains the word "think"/"thinking" near angle brackets.
+  const family = detectModelFamily(modelId);
+  const NATIVE_REASONING_FAMILIES = new Set([
+    "claude",
+    "openai",
+    "google",
+    "xai",
+    "deepseek-reasoner",
+  ]);
+  if (NATIVE_REASONING_FAMILIES.has(family)) {
+    return base as LanguageModel;
+  }
+
   // Some providers (e.g. Codex) return a v2 model spec while wrapLanguageModel is
   // typed for v3; the reasoning middleware works on both at runtime. Bridge the
   // version-spec gap with a cast — keep the public LanguageModel return type.
@@ -137,7 +157,7 @@ export function resolveModel(modelId: string): LanguageModel {
     model: base as Parameters<typeof wrapLanguageModel>[0]["model"],
     // Models that inline-emit thinking as <think>/<thinking> tags in their text
     // stream (some local/OpenAI-compatible models) get them split out into
-    // native reasoning parts. No-op for providers with a native reasoning channel.
+    // native reasoning parts.
     middleware: [
       extractReasoningMiddleware({ tagName: "think" }),
       extractReasoningMiddleware({ tagName: "thinking" }),
