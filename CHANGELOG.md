@@ -2,6 +2,15 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.6] — 2026-06-04
+
+### Bug Fixes
+
+- **chat**: stop leading text re-streaming over tool rail
+- **chat**: render reasoning in live streaming view
+- **clipboard**: repair Windows image paste
+- **llm**: skip inline-reasoning extractor for native-reasoning models
+- **repomap**: clear stuck "waiting for soul map" semantic stub
 ## [2.20.5] — 2026-06-04
 
 ### Bug Fixes
