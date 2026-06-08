@@ -563,11 +563,11 @@ interface ProxyProvider {
 export const PROXY_PROVIDERS: ProxyProvider[] = [
   { id: "claude", name: "Claude", flag: "-claude-login", prefix: "claude-" },
   { id: "google", name: "Google (Gemini)", flag: "-login", prefix: "gemini-" },
-  { id: "openai", name: "OpenAI", flag: "-codex-login", prefix: "codex-" },
+  { id: "openai", name: "OpenAI (Codex)", flag: "-codex-login", prefix: "codex-" },
   { id: "codex", name: "Codex (device)", flag: "-codex-device-login", prefix: "codex-" },
-  { id: "qwen", name: "Qwen", flag: "-qwen-login", prefix: "qwen-" },
+  { id: "antigravity", name: "Antigravity", flag: "-antigravity-login", prefix: "antigravity-" },
+  { id: "xai", name: "xAI (Grok)", flag: "-xai-login", prefix: "xai-" },
   { id: "kimi", name: "Kimi", flag: "-kimi-login", prefix: "kimi-" },
-  { id: "iflow", name: "iFlow", flag: "-iflow-login", prefix: "iflow-" },
 ];
 
 const AUTH_DIR = join(homedir(), ".cli-proxy-api");
