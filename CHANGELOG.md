@@ -2,6 +2,11 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.8] — 2026-06-08
+
+### Bug Fixes
+
+- **proxy**: sync /proxy login providers with CLIProxyAPI v7
 ## [2.20.7] — 2026-06-08
 
 ### Bug Fixes
