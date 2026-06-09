@@ -2,6 +2,17 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.10] — 2026-06-09
+
+### Bug Fixes
+
+- **statusbar**: stop vmmap freezing the TUI every 2s on macOS
+### Features
+
+- Claude 5-gen model support + reliable proxy login detection
+### Miscellaneous
+
+- sync provider pricing to June 2026
 ## [2.20.9] — 2026-06-09
 
 ### Bug Fixes
