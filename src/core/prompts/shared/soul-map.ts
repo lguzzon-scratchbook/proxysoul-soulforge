@@ -25,7 +25,7 @@ const SOUL_MAP_USAGE = `This map is a ranked, truncated index — an orientation
 - "What does Y export?" → a starting list; verify before asserting the full surface.
 - "What depends on Z?" → (→N) and ← arrows orient blast radius; soul_impact confirms it.
 
-Absence from the map is NOT absence from the codebase — a missing symbol may be ranked out, not nonexistent. Before stating any claim about how the code behaves, confirm it with a soul tool (soul_grep / soul_find / navigate / read). The map tells you where to look; the tools tell you what's true. Reason from the snapshot, answer from the tools.`;
+Absence from the map is NOT absence from the codebase — a missing symbol may be ranked out, not nonexistent. Before stating any claim about how the code behaves, confirm it with a soul tool (soul_grep() / soul_find() / navigate() / read()). The map tells you where to look; the tools tell you what's true. Reason from the snapshot, answer from the tools.`;
 
 const LEGEND = "+ = exported. (→N) = blast radius. [NEW] = modified in last 48h.\n";
 const DIR_TREE_DEPTH = 2;
