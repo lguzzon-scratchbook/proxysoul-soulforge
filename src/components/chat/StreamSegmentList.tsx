@@ -25,9 +25,13 @@ export function DripText({ content, streaming }: { content: string; streaming: b
 
   const cursor = streaming ? "▊" : "";
 
+  // Pass the real `streaming` flag through so the native <markdown> renderable
+  // finalizes its trailing block when streaming ends (per OpenTUI contract).
+  // Leaving it permanently true keeps the last block "unstable" and can leak
+  // duplicate lines at the stream→static handoff.
   return (
     <box flexDirection="column" opacity={opacity}>
-      <Markdown text={`${display}${cursor}`} streaming />
+      <Markdown text={`${display}${cursor}`} streaming={streaming} />
     </box>
   );
 }

@@ -36,11 +36,23 @@ export function useTextDrip(
   const fullTextRef = useRef(fullText);
   fullTextRef.current = fullText;
 
-  // Accumulate incoming content into buffer
+  // Accumulate incoming content into buffer. The native <markdown streaming>
+  // renderable assumes MONOTONIC growth — it keeps committed "stable blocks"
+  // and only re-parses the trailing block. If the content ever shrinks (the
+  // same DripText instance is reused for a new, shorter segment, or the buffer
+  // is reset), feeding a prefix shorter than what was already finalized makes
+  // the parser re-emit the already-stable blocks => duplicate lines leak into
+  // the stream. Detect a shrink and hard-reset the drip + reveal cursor so the
+  // renderable restarts from a clean slate instead of replaying stale blocks.
   useEffect(() => {
     const delta = fullText.length - prevLenRef.current;
     if (delta > 0) {
       bufferRef.current += delta;
+    } else if (delta < 0) {
+      // Content went backwards — reset all incremental state.
+      bufferRef.current = fullText.length;
+      velocityRef.current = MIN_SPEED;
+      setDrip({ revealed: 0, fresh: 0 });
     }
     prevLenRef.current = fullText.length;
   }, [fullText]);
