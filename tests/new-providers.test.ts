@@ -309,9 +309,9 @@ describe("cost counting — matchPricing", () => {
 		expect(cost).toBeCloseTo(0.14 + 0.28, 4);
 	});
 
-	test("deepseek cache read → 10% of input ($0.014)", () => {
+	test("deepseek cache read → cache-hit input rate ($0.0028)", () => {
 		const cost = computeModelCost("deepseek/deepseek-chat", cache1M);
-		expect(cost).toBeCloseTo(0.014, 4);
+		expect(cost).toBeCloseTo(0.0028, 4);
 	});
 
 	// ── Mistral ──
@@ -320,9 +320,9 @@ describe("cost counting — matchPricing", () => {
 		expect(cost).toBeCloseTo(0.5 + 1.5, 4);
 	});
 
-	test("mistral/mistral-small-2506 → $0.10 in + $0.30 out", () => {
-		const cost = computeModelCost("mistral/mistral-small-2506", usage1M);
-		expect(cost).toBeCloseTo(0.1 + 0.3, 4);
+	test("mistral/mistral-small-2603 → $0.15 in + $0.60 out", () => {
+		const cost = computeModelCost("mistral/mistral-small-2603", usage1M);
+		expect(cost).toBeCloseTo(0.15 + 0.6, 4);
 	});
 
 	test("mistral/codestral-2508 → $0.30 in + $0.90 out", () => {
@@ -330,9 +330,9 @@ describe("cost counting — matchPricing", () => {
 		expect(cost).toBeCloseTo(0.3 + 0.9, 4);
 	});
 
-	test("mistral/mistral-medium-2508 → $0.40 in + $2.00 out", () => {
-		const cost = computeModelCost("mistral/mistral-medium-2508", usage1M);
-		expect(cost).toBeCloseTo(0.4 + 2.0, 4);
+	test("mistral/mistral-medium-3-5 → $1.50 in + $7.50 out", () => {
+		const cost = computeModelCost("mistral/mistral-medium-3-5", usage1M);
+		expect(cost).toBeCloseTo(1.5 + 7.5, 4);
 	});
 
 	// ── Fireworks (provider-specific pricing) ──

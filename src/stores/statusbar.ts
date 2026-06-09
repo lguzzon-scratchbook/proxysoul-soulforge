@@ -43,10 +43,12 @@ interface ModelPricing {
 // DeepSeek:  https://api-docs.deepseek.com/quick_start/pricing
 const MODEL_PRICING: Record<string, ModelPricing> = {
   // ── Anthropic Claude ──────────────────────────────────────────────
-  // Source: https://docs.claude.com/en/docs/about-claude/pricing (2026-04-30)
+  // Source: https://platform.claude.com/docs/en/about-claude/pricing (2026-04-30)
   // cacheWrite = 5-min TTL (1.25× base). 1h TTL would be 2× base; SDK doesn't
   // expose which TTL was used, and we always request the 5m default.
   // cacheRead = 0.1× base input.
+  "claude-fable-5": { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 },
+  "claude-mythos-5": { input: 10, cacheWrite: 12.5, cacheRead: 1, output: 50 },
   "claude-opus-4-8": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
   "claude-opus-4-7": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
   "claude-opus-4-6": { input: 5, cacheWrite: 6.25, cacheRead: 0.5, output: 25 },
@@ -96,14 +98,13 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   "gemini-2.0-flash-lite": { input: 0.075, cacheWrite: 0.075, cacheRead: 0.019, output: 0.3 },
 
   // ── DeepSeek ──────────────────────────────────────────────────────
-  // Source: https://api-docs.deepseek.com/quick_start/pricing (2026-04-30)
-  // deepseek-chat / deepseek-reasoner are aliases for deepseek-v4-flash (non-thinking / thinking).
-  // Cache hit price reduced to 1/10 of input on 2026-04-26.
-  // v4-pro list price; 75%-off promo runs until 2026-05-31.
-  "deepseek-v4-pro": { input: 1.74, cacheWrite: 1.74, cacheRead: 0.0145, output: 3.48 },
-  "deepseek-v4-flash": { input: 0.14, cacheWrite: 0.14, cacheRead: 0.014, output: 0.28 },
-  "deepseek-chat": { input: 0.14, cacheWrite: 0.14, cacheRead: 0.014, output: 0.28 },
-  "deepseek-reasoner": { input: 0.14, cacheWrite: 0.14, cacheRead: 0.014, output: 0.28 },
+  // Source: https://api-docs.deepseek.com/quick_start/pricing (2026-06-02)
+  // deepseek-chat / deepseek-reasoner are aliases for deepseek-v4-flash (non-thinking / thinking),
+  // deprecated 2026-07-24. cacheRead = cache-hit input rate (no separate cache-write charge).
+  "deepseek-v4-pro": { input: 0.435, cacheWrite: 0.435, cacheRead: 0.003625, output: 0.87 },
+  "deepseek-v4-flash": { input: 0.14, cacheWrite: 0.14, cacheRead: 0.0028, output: 0.28 },
+  "deepseek-chat": { input: 0.14, cacheWrite: 0.14, cacheRead: 0.0028, output: 0.28 },
+  "deepseek-reasoner": { input: 0.14, cacheWrite: 0.14, cacheRead: 0.0028, output: 0.28 },
   "deepseek-v3": { input: 0.28, cacheWrite: 0.28, cacheRead: 0.028, output: 0.42 },
   "deepseek-r1": { input: 0.28, cacheWrite: 0.28, cacheRead: 0.028, output: 0.42 },
 
@@ -117,11 +118,24 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   "gpt-oss-20b": { input: 0.075, cacheWrite: 0.075, cacheRead: 0.0375, output: 0.3 },
   "gpt-oss-120b": { input: 0.15, cacheWrite: 0.15, cacheRead: 0.075, output: 0.6 },
 
+  // ── xAI Grok ───────────────────────────────────────────────────────
+  // Source: https://docs.x.ai/developers/pricing (2026-05-29)
+  // grok-4.3 is the flagship; -fast variants are the cheap high-throughput tier.
+  // cacheRead from the model card cached-input rate.
+  "grok-4.3": { input: 1.25, cacheWrite: 1.25, cacheRead: 0.2, output: 2.5 },
+  "grok-4.20": { input: 1.25, cacheWrite: 1.25, cacheRead: 0.2, output: 2.5 },
+  "grok-4.1-fast": { input: 0.2, cacheWrite: 0.2, cacheRead: 0.05, output: 0.5 },
+  "grok-4-fast": { input: 0.2, cacheWrite: 0.2, cacheRead: 0.05, output: 0.5 },
+  "grok-code-fast": { input: 0.2, cacheWrite: 0.2, cacheRead: 0.02, output: 1.5 },
+  "grok-4": { input: 3, cacheWrite: 3, cacheRead: 0.75, output: 15 },
+  "grok-3": { input: 3, cacheWrite: 3, cacheRead: 0.75, output: 15 },
+  "grok-3-mini": { input: 0.3, cacheWrite: 0.3, cacheRead: 0.075, output: 0.5 },
+
   // ── Mistral ────────────────────────────────────────────────────────
-  // Source: https://docs.mistral.ai/getting-started/models/compare (2026-07)
+  // Source: https://docs.mistral.ai/getting-started/models/compare (2026-06)
   "mistral-large": { input: 0.5, cacheWrite: 0.5, cacheRead: 0.05, output: 1.5 },
-  "mistral-medium": { input: 0.4, cacheWrite: 0.4, cacheRead: 0.04, output: 2 },
-  "mistral-small": { input: 0.1, cacheWrite: 0.1, cacheRead: 0.01, output: 0.3 },
+  "mistral-medium": { input: 1.5, cacheWrite: 1.5, cacheRead: 0.15, output: 7.5 },
+  "mistral-small": { input: 0.15, cacheWrite: 0.15, cacheRead: 0.015, output: 0.6 },
   codestral: { input: 0.3, cacheWrite: 0.3, cacheRead: 0.03, output: 0.9 },
   magistral: { input: 0.5, cacheWrite: 0.5, cacheRead: 0.05, output: 1.5 },
   ministral: { input: 0.1, cacheWrite: 0.1, cacheRead: 0.01, output: 0.1 },
@@ -275,10 +289,13 @@ function matchPricing(modelId: string): ModelPricing {
     if (id.includes(key)) return pricing;
   }
   // Fallback heuristics for unknown variants / OpenRouter prefixed IDs
+  if (id.includes("fable") || id.includes("mythos"))
+    return MODEL_PRICING["claude-fable-5"] ?? DEFAULT_PRICING;
   if (id.includes("opus")) return MODEL_PRICING["claude-opus-4-8"] ?? DEFAULT_PRICING;
   if (id.includes("sonnet")) return DEFAULT_PRICING;
   if (id.includes("haiku")) return MODEL_PRICING["claude-haiku-4-5"] ?? DEFAULT_PRICING;
   if (id.includes("gemini")) return MODEL_PRICING["gemini-2.5-flash"] ?? DEFAULT_PRICING;
+  if (id.includes("grok")) return MODEL_PRICING["grok-4.3"] ?? DEFAULT_PRICING;
   if (id.includes("gpt")) return MODEL_PRICING["gpt-5.4"] ?? DEFAULT_PRICING;
   if (id.includes("deepseek")) return MODEL_PRICING["deepseek-chat"] ?? DEFAULT_PRICING;
   return DEFAULT_PRICING;

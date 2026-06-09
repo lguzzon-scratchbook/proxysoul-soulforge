@@ -52,6 +52,8 @@ export const anthropic: ProviderDefinition = {
   },
 
   fallbackModels: [
+    { id: "claude-fable-5", name: "Claude Fable 5" },
+    { id: "claude-mythos-5", name: "Claude Mythos 5" },
     { id: "claude-opus-4-8", name: "Claude Opus 4.8" },
     { id: "claude-opus-4-7", name: "Claude Opus 4.7" },
     { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
@@ -64,6 +66,8 @@ export const anthropic: ProviderDefinition = {
   ],
 
   contextWindows: [
+    ["claude-fable-5", 1_000_000],
+    ["claude-mythos-5", 1_000_000],
     ["claude-opus-4-8", 1_000_000],
     ["claude-opus-4-7", 1_000_000],
     ["claude-opus-4-6", 1_000_000],
