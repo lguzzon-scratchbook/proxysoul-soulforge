@@ -2,6 +2,14 @@
 
 All notable changes to SoulForge are documented here.
 
+## [2.20.13] — 2026-06-11
+
+### Bug Fixes
+
+- **build**: resolve @opentui/core 0.4.x platform imports in compile phase
+### Miscellaneous
+
+- compile gate on every push + PR to catch dep-bump build breaks
 ## [2.20.12] — 2026-06-11
 
 ### Features
