@@ -649,13 +649,14 @@ function getPerPidRssKB(pids: number[]): Promise<Map<number, number>> {
  * the OS silently compresses cold heap. We need the "physical footprint"
  * number, which matches what Activity Monitor displays.
  *
- * On macOS: read the footprint via the Mach task_info VM bookkeeping by
- * falling back through vmmap → ps rss. vmmap owns the accurate number but is
- * expensive — it walks the whole VM map and briefly stalls the task. Running
- * it on every 2s poll froze the UI on a fixed cadence (#102), so we cache the
- * footprint and refresh it at most once per FOOTPRINT_TTL_MS, off the poll's
- * await path. The poll never blocks on vmmap; it returns the freshest value we
- * already have (rss until the first refresh lands).
+ * On macOS: read phys_footprint via /usr/bin/footprint, which queries the
+ * Mach task_info VM bookkeeping directly. Crucially it does NOT stall the
+ * target task. The previous sampler (vmmap --summary) walked the entire VM
+ * map and suspended the target for ~300ms per call — even fire-and-forget
+ * off the await path, the *target* (us) froze on every sample (#102). The
+ * 30s TTL cache is kept as belt-and-braces against fork cost, and the poll
+ * never awaits the sampler; it returns the freshest value we already have
+ * (rss until the first refresh lands).
  *
  * On Linux/Windows: RSS already includes everything meaningful.
  */
@@ -693,16 +694,16 @@ async function refreshFootprintMB(): Promise<void> {
 function macFootprintMB(pid: number): Promise<number | null> {
   return new Promise((resolve) => {
     execFile(
-      "vmmap",
-      ["--summary", String(pid)],
+      "/usr/bin/footprint",
+      [String(pid)],
       { timeout: 2000, maxBuffer: 1024 * 1024 },
       (err, stdout) => {
         if (err) {
           resolve(null);
           return;
         }
-        // "Physical footprint:         9.8G" — match whatever unit vmmap emits
-        const m = stdout.match(/Physical footprint:\s+([\d.]+)([KMGT])/);
+        // "    phys_footprint: 813 MB" — unit varies (KB/MB/GB)
+        const m = stdout.match(/phys_footprint:\s+([\d.]+)\s*([KMGT])B/);
         if (!m?.[1] || !m[2]) {
           resolve(null);
           return;
