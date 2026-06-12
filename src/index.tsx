@@ -401,6 +401,25 @@ export async function start(opts: StartOptions): Promise<void> {
   r.setMaxListeners(30);
   r.keyInput.setMaxListeners(30);
 
+  // Resize watchdog — SIGWINCH is not reliably delivered in some transports
+  // (Win32-OpenSSH client → sshd drops window-change, #91), so the renderer's
+  // SIGWINCH handler never fires even though the PTY size DID update. Poll the
+  // cheap TIOCGWINSZ-backed stdout dims and reconcile. No-op when sizes match;
+  // renderer.resize() is the documented hook for externally-driven resizes.
+  if (process.stdout.isTTY) {
+    const resizePoll = setInterval(() => {
+      try {
+        const cols = process.stdout.columns;
+        const rows = process.stdout.rows;
+        if (!cols || !rows) return;
+        if (cols !== r.terminalWidth || rows !== r.terminalHeight) {
+          r.resize(cols, rows);
+        }
+      } catch {}
+    }, 1000);
+    resizePoll.unref?.();
+  }
+
   // Register custom renderables for JSX usage
   {
     const { extend } = await import("@opentui/react");
