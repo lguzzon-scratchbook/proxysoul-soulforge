@@ -414,6 +414,7 @@ export async function start(opts: StartOptions): Promise<void> {
   // unsupported terminals ignore the enable sequence — strictly additive.
   if (process.stdout.isTTY) {
     r.addInputHandler((sequence: string) => {
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: ESC required to match the CSI resize report
       const m = sequence.match(/^\x1b\[48;(\d+);(\d+)(?:;\d+;\d+)?t$/);
       if (!m?.[1] || !m[2]) return false;
       const rows = Number.parseInt(m[1], 10);
